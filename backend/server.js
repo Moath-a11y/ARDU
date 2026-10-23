@@ -362,6 +362,32 @@ const apiServer = http.createServer(async (req, res) => {
         });
       }
 
+      // Server-side command allowlist validation
+      const ALLOWED_COMMANDS = ['RELAY_ON', 'RELAY_OFF', 'STATUS_QUERY', 'STATUS', 'PING', 'BARQ_LIVE_PING'];
+      let cmdName = null;
+      if (typeof payload === 'object' && payload !== null) {
+        cmdName = payload.cmd || (payload.ping ? 'PING' : null);
+      } else if (typeof payload === 'string') {
+        const trimmed = payload.trim();
+        if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+          try {
+            const parsed = JSON.parse(trimmed);
+            cmdName = parsed.cmd || (parsed.ping ? 'PING' : null);
+          } catch (_) {
+            return sendJson(400, { success: false, error: 'MALFORMED: Invalid JSON in payload' });
+          }
+        } else {
+          cmdName = trimmed;
+        }
+      }
+
+      if (!cmdName || !ALLOWED_COMMANDS.includes(cmdName.toUpperCase())) {
+        return sendJson(400, {
+          success: false,
+          error: `INVALID_COMMAND: Command "${cmdName || 'UNKNOWN'}" is not permitted. Allowed: RELAY_ON, RELAY_OFF, STATUS_QUERY, PING`
+        });
+      }
+
       let chatMsg;
       const localSender = hwController.relayClients.get(fromId);
       if (localSender && localSender._state === 'REGISTERED') {
@@ -370,11 +396,16 @@ const apiServer = http.createServer(async (req, res) => {
         // Standalone cellular node mode: dispatch from Web Console / Server directly through TCP RelayServer
         chatMsg = await challengeServer.sendRelayFromWeb(fromId, toId, payload, timeoutMs);
         hwController._addMessage(chatMsg);
-        broadcastWs('RELAY_MESSAGE_DELIVERED', chatMsg);
+        if (chatMsg.status === 'FAILED') {
+          broadcastWs('RELAY_MESSAGE_FAILED', chatMsg);
+        } else {
+          broadcastWs('RELAY_MESSAGE_DELIVERED', chatMsg);
+        }
       }
 
       broadcastWs('NODE_SNAPSHOT', hwController.getSnapshot());
-      return sendJson(200, { success: true, message: chatMsg });
+      const isSuccess = chatMsg.status !== 'FAILED';
+      return sendJson(isSuccess ? 200 : 400, { success: isSuccess, message: chatMsg });
     } catch (err) {
       return sendJson(500, { success: false, error: err.message });
     }

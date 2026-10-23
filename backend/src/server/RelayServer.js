@@ -111,8 +111,13 @@ class RelayServer extends EventEmitter {
           if (p.toId === deviceId || p.fromId === deviceId) {
             clearTimeout(p.timeoutHandle);
             this._pending.delete(msgId);
+            if (typeof p.reject === 'function') {
+              p.reject(new Error(`DESTINATION_OFFLINE: Device ${deviceId} disconnected while command was in flight`));
+            }
             const errMsg = { type: 'ERROR', code: 'DESTINATION_OFFLINE', msgId, message: `${deviceId} disconnected` };
-            if (p.fromId !== deviceId) this._send(this._sessions.get(p.fromId), errMsg);
+            if (p.fromId !== deviceId && p.fromSocket && !p.fromSocket.destroyed) {
+              this._send(p.fromSocket, errMsg);
+            }
           }
         }
       }
@@ -226,6 +231,15 @@ class RelayServer extends EventEmitter {
         if (this._sessions.has(dId) && this._sessions.get(dId) !== socket) {
           // Replace old session (reconnect scenario)
           const old = this._sessions.get(dId);
+          for (const [msgId, p] of this._pending.entries()) {
+            if (p.toId === dId) {
+              clearTimeout(p.timeoutHandle);
+              this._pending.delete(msgId);
+              if (typeof p.reject === 'function') {
+                p.reject(new Error(`DEVICE_RECONNECTED: Device ${dId} reconnected before previous command was acknowledged`));
+              }
+            }
+          }
           old.destroy();
         }
         this._sessions.set(dId, socket);

@@ -312,9 +312,48 @@ void processIncomingRelay(const char* json) {
   }
 }
 
+// Parse one or more balanced JSON objects from incoming cellular buffer
+void parseIncomingPayload(char* p) {
+  while (*p) {
+    char* start = strchr(p, '{');
+    if (!start) break;
+
+    // Scan for matching closing brace of this JSON frame
+    int depth = 0;
+    char* end = nullptr;
+    for (char* cur = start; *cur; cur++) {
+      if (*cur == '{') {
+        depth++;
+      } else if (*cur == '}') {
+        depth--;
+        if (depth == 0) {
+          end = cur;
+          break;
+        }
+      }
+    }
+
+    if (!end) break; // Frame incomplete or truncated, stop scanning
+
+    char savedChar = *(end + 1);
+    *(end + 1) = '\0'; // Temporarily null-terminate this discrete frame
+
+    if (strstr(start, "\"type\":\"RELAY\"") != nullptr) {
+      processIncomingRelay(start);
+    } else if (strstr(start, "\"type\":\"REGISTER_ACK\"") != nullptr) {
+      DEBUG.println(F("✅ [REGISTER_ACK VERIFIED] Connected to Cloud Relay!"));
+    } else if (strstr(start, "\"type\":\"PONG\"") != nullptr) {
+      DEBUG.println(F("💓 [PONG] Server heartbeat confirmed"));
+    }
+
+    *(end + 1) = savedChar;
+    p = end + 1; // Advance pointer to scan for subsequent concatenated frame
+  }
+}
+
 // Bounded read of incoming TCP buffer via AT+QIRD
 void readCellularInbound() {
-  clearModemBuffer();
+  // Do NOT clear buffer before QIRD to avoid discarding in-flight bytes
   MODEM.print(F("AT+QIRD=0,1,0,256\r\n"));
 
   uint32_t start = millis();
@@ -335,18 +374,9 @@ void readCellularInbound() {
   }
 
   if (strstr(rxBuf, "+QIRD:") != nullptr) {
-    char* jsonStart = strchr(rxBuf, '{');
-    char* jsonEnd = strrchr(rxBuf, '}');
-    if (jsonStart != nullptr && jsonEnd != nullptr && jsonEnd > jsonStart) {
-      *(jsonEnd + 1) = '\0'; // Null-terminate JSON string
-
-      if (strstr(jsonStart, "\"type\":\"RELAY\"") != nullptr) {
-        processIncomingRelay(jsonStart);
-      } else if (strstr(jsonStart, "\"type\":\"REGISTER_ACK\"") != nullptr) {
-        DEBUG.println(F("✅ [REGISTER_ACK VERIFIED] Connected to Cloud Relay!"));
-      } else if (strstr(jsonStart, "\"type\":\"PONG\"") != nullptr) {
-        DEBUG.println(F("💓 [PONG] Server heartbeat confirmed"));
-      }
+    char* headerEnd = strstr(rxBuf, "\r\n");
+    if (headerEnd != nullptr) {
+      parseIncomingPayload(headerEnd + 2);
     }
   }
 }

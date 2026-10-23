@@ -298,6 +298,172 @@ async function runSingleDeviceTests() {
       await wait(50);
     }
 
+    // ---------------------------------------------------------------
+    // Test 8: Device disconnect while command in-flight fails fast
+    // ---------------------------------------------------------------
+    {
+      const devAlpha = createMockDevice(TEST_PORT);
+      await wait(50);
+
+      devAlpha.send({ type: 'REGISTER', deviceId: 'ALPHA', version: 'BARQ-RELAY-v1' });
+      await devAlpha.waitForMessage();
+
+      const dispatchPromise = server.sendRelayFromWeb('WEB_CONSOLE', 'ALPHA', '{"cmd":"DISCONNECT_TEST"}', 5000);
+      await devAlpha.waitForMessage();
+
+      // Abruptly disconnect the device socket
+      devAlpha.close();
+
+      try {
+        await dispatchPromise;
+        fail('Dispatch promise did not reject on device disconnect', new Error('Expected rejection'));
+      } catch (err) {
+        assert.ok(err.message.includes('DESTINATION_OFFLINE'), 'Expected DESTINATION_OFFLINE on disconnect');
+        pass('In-flight command fails fast with DESTINATION_OFFLINE when device socket closes abruptly');
+      }
+      await wait(50);
+    }
+
+    // ---------------------------------------------------------------
+    // Test 9: Reconnecting device cleans up pending command for old session
+    // ---------------------------------------------------------------
+    {
+      const devOld = createMockDevice(TEST_PORT);
+      await wait(50);
+
+      devOld.send({ type: 'REGISTER', deviceId: 'ALPHA', version: 'BARQ-RELAY-v1' });
+      await devOld.waitForMessage();
+
+      let dispatchErr = null;
+      const dispatchPromise = server.sendRelayFromWeb('WEB_CONSOLE', 'ALPHA', '{"cmd":"RECONNECT_TEST"}', 5000)
+        .catch((err) => { dispatchErr = err; });
+      await devOld.waitForMessage();
+
+      // New socket connects and claims ALPHA
+      const devNew = createMockDevice(TEST_PORT);
+      await wait(50);
+      devNew.send({ type: 'REGISTER', deviceId: 'ALPHA', version: 'BARQ-RELAY-v1' });
+      const regAck = await devNew.waitForMessage();
+      assert.strictEqual(regAck.type, 'REGISTER_ACK');
+
+      await dispatchPromise;
+      assert.ok(dispatchErr !== null, 'Expected dispatchErr to be set');
+      assert.ok(dispatchErr.message.includes('DEVICE_RECONNECTED'), 'Expected DEVICE_RECONNECTED rejection');
+      pass('Session replacement cleanly cleans up stale pending commands and updates active session');
+
+      devNew.close();
+      await wait(50);
+    }
+
+    // ---------------------------------------------------------------
+    // Test 10: Server shutdown cleanly rejects in-flight commands
+    // ---------------------------------------------------------------
+    {
+      const devAlpha = createMockDevice(TEST_PORT);
+      await wait(50);
+
+      devAlpha.send({ type: 'REGISTER', deviceId: 'ALPHA', version: 'BARQ-RELAY-v1' });
+      await devAlpha.waitForMessage();
+
+      let shutdownErr = null;
+      const dispatchPromise = server.sendRelayFromWeb('WEB_CONSOLE', 'ALPHA', '{"cmd":"SHUTDOWN_TEST"}', 5000)
+        .catch((err) => { shutdownErr = err; });
+      await devAlpha.waitForMessage();
+
+      // Stop server while command in-flight
+      await server.stop();
+
+      await dispatchPromise;
+      assert.ok(shutdownErr !== null, 'Expected shutdownErr to be set');
+      assert.ok(shutdownErr.message.includes('SERVER_STOPPED'), 'Expected SERVER_STOPPED error');
+      pass('Server shutdown cleanly cancels all timers and rejects in-flight promises');
+
+      // Restart server for subsequent tests
+      await server.start();
+      devAlpha.close();
+      await wait(50);
+    }
+
+    // ---------------------------------------------------------------
+    // Test 11: Truthful execution reporting on command failure
+    // ---------------------------------------------------------------
+    {
+      const devAlpha = createMockDevice(TEST_PORT);
+      await wait(50);
+
+      devAlpha.send({ type: 'REGISTER', deviceId: 'ALPHA', version: 'BARQ-RELAY-v1' });
+      await devAlpha.waitForMessage();
+
+      const dispatchPromise = server.sendRelayFromWeb('WEB_CONSOLE', 'ALPHA', '{"cmd":"FAILED_OP_TEST"}', 3000);
+      const relayMsg = await devAlpha.waitForMessage();
+
+      // Device returns status: "FAILED"
+      devAlpha.send({
+        type: 'DELIVERY_ACK',
+        deviceId: 'ALPHA',
+        msgId: relayMsg.msgId,
+        from: 'ALPHA',
+        to: 'WEB_CONSOLE',
+        status: 'FAILED',
+        result: { error: 'HARDWARE_FAULT' }
+      });
+
+      const confirmed = await dispatchPromise;
+      assert.strictEqual(confirmed.status, 'FAILED', 'Server must preserve truthful FAILED status');
+      assert.strictEqual(confirmed.result.error, 'HARDWARE_FAULT');
+
+      pass('Server preserves truthful FAILED status without falsely claiming EXECUTED or DELIVERED');
+      devAlpha.close();
+      await wait(50);
+    }
+
+    // ---------------------------------------------------------------
+    // Test 12: Concatenated frames delivered in a single TCP read
+    // ---------------------------------------------------------------
+    {
+      const devAlpha = createMockDevice(TEST_PORT);
+      await wait(50);
+
+      // Send REGISTER and PING concatenated in a single write
+      devAlpha.socket.write(
+        '{"type":"REGISTER","deviceId":"ALPHA","version":"BARQ-RELAY-v1"}\r\n' +
+        '{"type":"PING","deviceId":"ALPHA"}\r\n'
+      );
+
+      const msg1 = await devAlpha.waitForMessage();
+      assert.strictEqual(msg1.type, 'REGISTER_ACK');
+
+      const msg2 = await devAlpha.waitForMessage();
+      assert.strictEqual(msg2.type, 'PONG');
+
+      pass('Server processes multiple concatenated frames delivered in a single TCP chunk');
+      devAlpha.close();
+      await wait(50);
+    }
+
+    // ---------------------------------------------------------------
+    // Test 13: Partial frames split across multiple TCP reads
+    // ---------------------------------------------------------------
+    {
+      const devAlpha = createMockDevice(TEST_PORT);
+      await wait(50);
+
+      const chunk1 = '{"type":"REGISTER","dev';
+      const chunk2 = 'iceId":"ALPHA","version":"BARQ-RELAY-v1"}\r\n';
+
+      devAlpha.socket.write(chunk1);
+      await wait(40);
+      devAlpha.socket.write(chunk2);
+
+      const ack = await devAlpha.waitForMessage();
+      assert.strictEqual(ack.type, 'REGISTER_ACK');
+      assert.strictEqual(ack.deviceId, 'ALPHA');
+
+      pass('Server correctly reassembles partial frame split across multiple TCP packets');
+      devAlpha.close();
+      await wait(50);
+    }
+
   } catch (fatal) {
     fail('Fatal test runner failure', fatal);
   } finally {
