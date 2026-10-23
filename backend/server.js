@@ -337,19 +337,38 @@ const apiServer = http.createServer(async (req, res) => {
   // 11. Send Application Message (RELAY) & Await DELIVERY_ACK
   if (pathname === '/api/relay/send' && req.method === 'POST') {
     try {
-      const { from, to, payload, timeoutMs } = await readJsonBody();
-      if (!from || !to || !payload) {
-        return sendJson(400, { error: 'from, to, and payload are required' });
+      const body = await readJsonBody();
+      const from = body.from || 'WEB_CONSOLE';
+      const to = body.to || 'ALPHA';
+      const payload = body.payload;
+      const timeoutMs = body.timeoutMs || 25000;
+
+      if (!payload) {
+        return sendJson(400, { success: false, error: 'payload is required' });
       }
 
       const fromId = from.toUpperCase();
       const toId = to.toUpperCase();
-      const localClient = hwController.relayClients.get(fromId);
-      if (localClient && localClient._state === 'REGISTERED') {
-        chatMsg = await hwController.sendRelayMessage(fromId, toId, payload, timeoutMs || 25000);
+
+      // Check if target device is registered either in local serial clients or standalone TCP sessions
+      const localClient = hwController.relayClients.get(toId);
+      const isLocalRegistered = localClient && localClient._state === 'REGISTERED';
+      const isTcpRegistered = challengeServer._sessions.has(toId) && !challengeServer._sessions.get(toId).destroyed;
+
+      if (!isLocalRegistered && !isTcpRegistered) {
+        return sendJson(400, {
+          success: false,
+          error: `DESTINATION_OFFLINE: Device ${toId} is not connected or registered with Relay Server`
+        });
+      }
+
+      let chatMsg;
+      const localSender = hwController.relayClients.get(fromId);
+      if (localSender && localSender._state === 'REGISTERED') {
+        chatMsg = await hwController.sendRelayMessage(fromId, toId, payload, timeoutMs);
       } else {
-        // Standalone cellular node mode: dispatch through challengeServer directly over TCP
-        chatMsg = await challengeServer.sendRelayFromWeb(fromId, toId, payload, timeoutMs || 25000);
+        // Standalone cellular node mode: dispatch from Web Console / Server directly through TCP RelayServer
+        chatMsg = await challengeServer.sendRelayFromWeb(fromId, toId, payload, timeoutMs);
         hwController._addMessage(chatMsg);
         broadcastWs('RELAY_MESSAGE_DELIVERED', chatMsg);
       }

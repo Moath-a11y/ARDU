@@ -274,6 +274,13 @@ class RelayServer extends EventEmitter {
         break;
       }
 
+      // ── PING / HEARTBEAT ──────────────────────────────────
+      case 'PING': {
+        const currentDeviceId = dId || [...this._sessions.entries()].find(([, s]) => s === socket)?.[0] || 'UNKNOWN';
+        this._send(socket, { type: 'PONG', deviceId: currentDeviceId, serverTime: new Date().toISOString() });
+        break;
+      }
+
       // ── DELIVERY_ACK ─────────────────────────────────────
       case 'DELIVERY_ACK': {
         if (!msgId) {
@@ -284,6 +291,14 @@ class RelayServer extends EventEmitter {
           return this._send(socket, { type: 'ERROR', code: 'INVALID_MSG_ID', msgId,
             message: `No pending relay for msgId ${msgId}` });
         }
+
+        // Verify session binding: the acknowledging socket must belong to the target device
+        const currentDeviceId = [...this._sessions.entries()].find(([, s]) => s === socket)?.[0];
+        if (currentDeviceId && pending.toId && currentDeviceId !== pending.toId) {
+          return this._send(socket, { type: 'ERROR', code: 'UNAUTHORIZED_ACK', msgId,
+            message: `Device ${currentDeviceId} cannot acknowledge message destined for ${pending.toId}` });
+        }
+
         clearTimeout(pending.timeoutHandle);
         this._pending.delete(msgId);
 
@@ -294,12 +309,20 @@ class RelayServer extends EventEmitter {
 
         // Forward ACK to original sender socket if exists
         if (pending.fromSocket && !pending.fromSocket.destroyed) {
-          const ackMsg = { type: 'DELIVERY_ACK', msgId, from: from ?? 'UNKNOWN', to: pending.fromId, status: status ?? 'DELIVERED', payloadHash: msg.payloadHash };
+          const ackMsg = {
+            type: 'DELIVERY_ACK',
+            msgId,
+            from: from ?? currentDeviceId ?? 'UNKNOWN',
+            to: pending.fromId,
+            status: status ?? 'DELIVERED',
+            result: msg.result,
+            payloadHash: msg.payloadHash
+          };
           this._send(pending.fromSocket, ackMsg);
         }
 
-        console.log(`[RELAY] DELIVERY_ACK ${msgId}: ${pending.toId} -> ${pending.fromId}`);
-        this.emit('delivery_confirmed', { msgId, from: from, to: pending.fromId });
+        console.log(`[RELAY] DELIVERY_ACK ${msgId}: ${pending.toId} -> ${pending.fromId} (${status || 'DELIVERED'})`);
+        this.emit('delivery_confirmed', { msgId, from: from ?? currentDeviceId, to: pending.fromId, status: status || 'DELIVERED', result: msg.result });
         break;
       }
 
@@ -398,7 +421,8 @@ class RelayServer extends EventEmitter {
             payload: typeof payload === 'object' ? JSON.stringify(payload) : String(payload),
             sentAt: new Date(t0).toISOString(),
             deliveredAt: new Date().toISOString(),
-            status: 'DELIVERED',
+            status: ack.status || 'DELIVERED',
+            result: ack.result || null,
             direction: `${fromId}->${toId}`,
             rttMs: Date.now() - t0,
             ack

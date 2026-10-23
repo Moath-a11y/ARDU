@@ -1,4 +1,4 @@
-﻿# BARQ LINK — Relay Protocol Specification
+# BARQ LINK — Relay Protocol Specification
 
 **Version:** `BARQ-RELAY-v1`
 **Transport:** TCP (persistent connection, JSON Lines delimited by `\r\n`)
@@ -95,7 +95,63 @@ The server then forwards this ACK to the original sender.
 
 ---
 
-### 2.5 ERROR
+---
+
+### 2.5 PING / HEARTBEAT
+
+Sent periodically by an active device to keep the cellular GPRS/TCP connection alive and verify server reachability.
+
+| Field      | Type   | Required | Description                       |
+|------------|--------|----------|-----------------------------------|
+| `type`     | string | YES      | Always "PING"                     |
+| `deviceId` | string | YES      | Registered device name ("ALPHA")  |
+
+**Example:**
+```json
+{"type":"PING","deviceId":"ALPHA"}
+```
+
+---
+
+### 2.6 PONG
+
+Server response to a PING heartbeat.
+
+| Field        | Type   | Description                       |
+|--------------|--------|-----------------------------------|
+| `type`       | string | Always "PONG"                     |
+| `deviceId`   | string | Echo of deviceId                  |
+| `serverTime` | string | ISO-8601 UTC timestamp            |
+
+**Example:**
+```json
+{"type":"PONG","deviceId":"ALPHA","serverTime":"2026-10-23T18:00:00.000Z"}
+```
+
+---
+
+### 2.7 DELIVERY_ACK
+
+Sent by the destination device back to the server after processing and executing an inbound RELAY command.
+
+| Field      | Type   | Required | Description                                                         |
+|------------|--------|----------|---------------------------------------------------------------------|
+| `type`     | string | YES      | Always "DELIVERY_ACK"                                               |
+| `msgId`    | string | YES      | Must match the msgId of the RELAY being acknowledged                |
+| `deviceId` | string | YES      | ACK sender deviceId ("ALPHA")                                       |
+| `from`     | string | OPTIONAL | Sender device ID (defaults to registered deviceId)                  |
+| `to`       | string | OPTIONAL | Original sender deviceId ("WEB_CONSOLE" or "SERVER")                |
+| `status`   | string | YES      | "EXECUTED" (verified local actuation), "FAILED", or "DELIVERED"    |
+| `result`   | object | OPTIONAL | Local execution metadata (e.g. `{"pin":7,"relayState":1}`)         |
+
+**Example (Verified Hardware Execution):**
+```json
+{"type":"DELIVERY_ACK","deviceId":"ALPHA","msgId":"WEB_CONSOLE-1729700000-xyz","status":"EXECUTED","result":{"pin":7,"state":1}}
+```
+
+---
+
+### 2.8 ERROR
 
 Sent by the server on protocol violation, routing failure, or timeout.
 
@@ -108,7 +164,7 @@ Sent by the server on protocol violation, routing failure, or timeout.
 
 **Example:**
 ```json
-{"type":"ERROR","code":"DESTINATION_OFFLINE","msgId":"msg-7f3a1b","message":"BRAVO is not registered"}
+{"type":"ERROR","code":"DESTINATION_OFFLINE","msgId":"msg-7f3a1b","message":"ALPHA is not registered"}
 ```
 
 ---
@@ -117,47 +173,51 @@ Sent by the server on protocol violation, routing failure, or timeout.
 
 | Code                  | Trigger condition                                                  |
 |-----------------------|--------------------------------------------------------------------|
-| NOT_REGISTERED        | Device sent RELAY or DELIVERY_ACK without registering first        |
+| NOT_REGISTERED        | Device sent RELAY, PING, or DELIVERY_ACK without registering first |
 | DESTINATION_OFFLINE   | Target deviceId has no active connection                           |
 | ALREADY_REGISTERED    | A second REGISTER arrived on an already-registered session         |
-| DELIVERY_TIMEOUT      | No DELIVERY_ACK received within the deadline (default: 15 s)      |
+| DELIVERY_TIMEOUT      | No DELIVERY_ACK received within the deadline (default: 15–25 s)    |
 | INVALID_MSG_ID        | DELIVERY_ACK.msgId does not match any pending relay                |
+| UNAUTHORIZED_ACK      | A device session attempted to ACK a message addressed to another   |
 | MSG_TOO_LARGE         | Framed message exceeds 2 048 bytes                                 |
 | MALFORMED             | JSON parse failure or missing required field                       |
 
 ---
 
-## 4. Session Lifecycle
+## 4. Single-Device Operational Lifecycle (Console to ALPHA)
+
+In single-device production mode, commands originate directly from the Web Console / REST API without requiring a secondary peer device:
 
 ```
-Device (ALPHA)               Relay Server               Device (BRAVO)
-     |-- TCP connect ----------->|                            |
-     |<-- (TCP accepted) --------|                            |
-     |-- REGISTER(ALPHA) ------->|                            |
-     |<-- REGISTER_ACK ----------|                            |
-     |                           |<-- TCP connect ------------|
-     |                           |<-- REGISTER(BRAVO) --------|
-     |                           |--- REGISTER_ACK ---------->|
-     |                           |                            |
-     |-- RELAY(to:BRAVO,id:X) -->|                            |
-     |                           |--- RELAY(to:BRAVO,id:X) -->|
-     |                           |<-- DELIVERY_ACK(id:X) -----|
-     |<-- DELIVERY_ACK(id:X) ----|                            |
-     |                           |                            |
-     |-- TCP close ------------->|                            |
-     |                           | (session removed;          |
-     |                           |  pending relays -> ERROR)  |
+Web Console                 RelayServer                 Node ALPHA (M25 + Uno R3)
+     |                           |                                   |
+     |                           |<-- GPRS/TCP connect --------------|
+     |                           |<-- REGISTER(ALPHA) ---------------|
+     |                           |--- REGISTER_ACK ----------------->|
+     |                           |                                   |
+     |-- POST /api/relay/send -->|                                   |
+     |   {to:"ALPHA",cmd:...}    |                                   |
+     |                           |--- RELAY(msgId:X, payload) ------>|
+     |                           |                                   | (UART AT+QIRD)
+     |                           |                                   | Validate cmd allowlist
+     |                           |                                   | Actuate Pin 7 (Relay)
+     |                           |                                   | Verify digitalRead
+     |                           |<-- DELIVERY_ACK(id:X, EXECUTED) --|
+     |<-- 200 OK (EXECUTED) -----|                                   |
+     |    (WS update to UI)      |                                   |
+     |                           |                                   |
+     |                           |<-- PING(ALPHA) -------------------| (Heartbeat every 30s)
+     |                           |--- PONG ------------------------->|
 ```
 
 ---
 
-## 5. Delivery Guarantee and Timeout
+## 5. Delivery Guarantee and Truthful Execution Semantics
 
-- `socket.write()` from the server is **NOT** considered delivery confirmation.
-- Only an explicit `DELIVERY_ACK` from the destination constitutes confirmed delivery.
-- If no `DELIVERY_ACK` arrives within **15 seconds** of the relay being forwarded, the server
-  sends `ERROR { code: "DELIVERY_TIMEOUT" }` to the original sender.
-- Pending relay slots are cleaned up on timeout or DELIVERY_ACK.
+- TCP `write()` or modem `SEND OK` proves only that the payload left the local UART buffer. It is **NEVER** treated as application delivery or physical actuation.
+- Only an explicit `DELIVERY_ACK` from the target device with `status: "EXECUTED"` proves that the physical GPIO was actuated.
+- If the command fails local validation, the device returns `status: "FAILED"` with an error reason.
+- If no `DELIVERY_ACK` arrives within the deadline (25 seconds), the command promise is rejected with `DELIVERY_TIMEOUT`.
 
 ---
 
@@ -172,3 +232,4 @@ them through the original challenge-ACK logic, returning:
 ```
 
 This ensures all Stage 3 / Stage 4 test scripts continue to work without modification.
+

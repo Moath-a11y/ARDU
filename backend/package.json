@@ -5,7 +5,8 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node tests/gprs-relay-client.test.js && node tests/relay-protocol.test.js && node tests/gprs-engine.test.js && node tests/run-tests.js && node tests/hardware-controller-interactive.test.js",
+    "test": "node tests/gprs-relay-client.test.js && node tests/relay-protocol.test.js && node tests/single-device-dispatch.test.js && node tests/gprs-engine.test.js && node tests/run-tests.js && node tests/hardware-controller-interactive.test.js",
+    "test:single": "node tests/single-device-dispatch.test.js",
     "test:stage2": "node tests/run-tests.js",
     "test:stage3": "node tests/gprs-engine.test.js",
     "test:stage5": "node tests/gprs-relay-client.test.js && node tests/relay-protocol.test.js"

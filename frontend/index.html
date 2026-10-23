@@ -117,8 +117,10 @@
       const [messages, setMessages] = useState([]);
       const [events, setEvents] = useState([]);
       const [activeTab, setActiveTab] = useState('ALL');
-      const [senderNode, setSenderNode] = useState('ALPHA');
-      const [inputPayload, setInputPayload] = useState('{"ping":"BARQ_LIVE_PING","seq":1}');
+      const [dispatchMode, setDispatchMode] = useState('CONSOLE_TO_ALPHA'); // 'CONSOLE_TO_ALPHA' | 'ALPHA_TO_BRAVO' | 'BRAVO_TO_ALPHA'
+      const senderNode = dispatchMode === 'CONSOLE_TO_ALPHA' ? 'WEB_CONSOLE' : (dispatchMode === 'ALPHA_TO_BRAVO' ? 'ALPHA' : 'BRAVO');
+      const receiverNode = dispatchMode === 'CONSOLE_TO_ALPHA' ? 'ALPHA' : (dispatchMode === 'ALPHA_TO_BRAVO' ? 'BRAVO' : 'ALPHA');
+      const [inputPayload, setInputPayload] = useState('{"cmd":"RELAY_ON","target":"ALPHA"}');
       const [isTransmitting, setIsTransmitting] = useState(false);
       const [activeTxState, setActiveTxState] = useState(null);
       const [loadingAction, setLoadingAction] = useState({});
@@ -136,8 +138,6 @@
         }
         setMessages(deduped);
       };
-
-      const receiverNode = senderNode === 'ALPHA' ? 'BRAVO' : 'ALPHA';
 
       const showToast = (text, type = 'info') => {
         setToast({ text, type, id: Date.now() });
@@ -471,13 +471,17 @@
 
           const json = await res.json();
           if (json.success) {
+            const finalStatus = json.message?.status || 'DELIVERED';
+            const isExecuted = finalStatus === 'EXECUTED';
             setActiveTxState(prev => ({
               ...prev,
-              status: 'DELIVERED',
-              rttMs: json.message.rttMs,
-              msgId: json.message.id
+              status: finalStatus,
+              rttMs: json.message?.rttMs,
+              msgId: json.message?.id,
+              result: json.message?.result
             }));
-            showToast(`✅ تم استلام إقرار التسليم الحقيقي (DELIVERY_ACK) خلال ${json.message.rttMs}ms`, 'success');
+            const label = isExecuted ? 'إقرار التنفيذ الفعلي (EXECUTED)' : `إقرار التسليم (${finalStatus})`;
+            showToast(`✅ تم استلام ${label} خلال ${json.message?.rttMs || 0}ms`, 'success');
           } else {
             setActiveTxState(prev => ({ ...prev, status: 'FAILED', error: json.error }));
             showToast(`❌ فشل التسليم: ${json.error}`, 'error');
@@ -492,9 +496,20 @@
         }
       };
 
+      const handleSetCommand = (cmd) => {
+        if (cmd === 'RELAY_ON') {
+          setInputPayload(JSON.stringify({ cmd: 'RELAY_ON', target: 'ALPHA', ts: Date.now() }));
+        } else if (cmd === 'RELAY_OFF') {
+          setInputPayload(JSON.stringify({ cmd: 'RELAY_OFF', target: 'ALPHA', ts: Date.now() }));
+        } else if (cmd === 'STATUS') {
+          setInputPayload(JSON.stringify({ cmd: 'STATUS_QUERY', target: 'ALPHA', ts: Date.now() }));
+        }
+      };
+
       const handleSendPing = () => {
         const pingPayload = JSON.stringify({
           ping: 'BARQ_LIVE_PING',
+          target: receiverNode,
           seq: Math.floor(Math.random() * 1000),
           time: new Date().toISOString()
         });
@@ -1000,45 +1015,72 @@
                 {/* Direction Switcher */}
                 <div className="space-y-1.5">
                   <label className="text-xs text-slate-400 block font-sans">اتجاه الإرسال الخلوي:</label>
-                  <div className="grid grid-cols-2 gap-2 font-cyber font-bold text-xs">
+                  <div className="grid grid-cols-3 gap-2 font-cyber font-bold text-xs">
                     <button
-                      onClick={() => setSenderNode('ALPHA')}
-                      className={`py-2 px-3 rounded-xl border transition flex items-center justify-center gap-2 ${
-                        senderNode === 'ALPHA' ? 'bg-cyan-600 text-black border-cyanGlow font-black shadow-md shadow-cyan-600/30' : 'bg-[#050814] text-slate-400 border-cyberBorder hover:text-white'
+                      onClick={() => setDispatchMode('CONSOLE_TO_ALPHA')}
+                      className={`py-2 px-2 rounded-xl border transition flex flex-col items-center justify-center gap-1 ${
+                        dispatchMode === 'CONSOLE_TO_ALPHA' ? 'bg-cyan-500 text-black border-cyanGlow font-black shadow-md shadow-cyan-500/30' : 'bg-[#050814] text-slate-400 border-cyberBorder hover:text-white'
                       }`}
                     >
-                      <span>ALPHA</span>
-                      <span>➔</span>
-                      <span>BRAVO</span>
+                      <span className="text-[10px]">🖥️ CONSOLE</span>
+                      <span className="text-[10px]">➔ ALPHA</span>
                     </button>
 
                     <button
-                      onClick={() => setSenderNode('BRAVO')}
-                      className={`py-2 px-3 rounded-xl border transition flex items-center justify-center gap-2 ${
-                        senderNode === 'BRAVO' ? 'bg-magentaGlow text-black border-fuchsia-400 font-black shadow-md shadow-fuchsia-600/30' : 'bg-[#050814] text-slate-400 border-cyberBorder hover:text-white'
+                      onClick={() => setDispatchMode('ALPHA_TO_BRAVO')}
+                      className={`py-2 px-2 rounded-xl border transition flex flex-col items-center justify-center gap-1 ${
+                        dispatchMode === 'ALPHA_TO_BRAVO' ? 'bg-cyan-700 text-white border-cyan-400 font-bold' : 'bg-[#050814] text-slate-400 border-cyberBorder hover:text-white'
                       }`}
                     >
-                      <span>BRAVO</span>
-                      <span>➔</span>
-                      <span>ALPHA</span>
+                      <span className="text-[10px]">ALPHA</span>
+                      <span className="text-[10px]">➔ BRAVO</span>
+                    </button>
+
+                    <button
+                      onClick={() => setDispatchMode('BRAVO_TO_ALPHA')}
+                      className={`py-2 px-2 rounded-xl border transition flex flex-col items-center justify-center gap-1 ${
+                        dispatchMode === 'BRAVO_TO_ALPHA' ? 'bg-magentaGlow text-black border-fuchsia-400 font-black shadow-md shadow-fuchsia-600/30' : 'bg-[#050814] text-slate-400 border-cyberBorder hover:text-white'
+                      }`}
+                    >
+                      <span className="text-[10px]">BRAVO</span>
+                      <span className="text-[10px]">➔ ALPHA</span>
                     </button>
                   </div>
                 </div>
 
-                {/* Quick Templates */}
-                <div className="flex gap-2 text-xs">
-                  <button
-                    onClick={handleSendPing}
-                    className="px-3 py-1.5 rounded-lg bg-[#050917] hover:bg-slate-800 text-cyanGlow border border-cyan-500/30 font-mono text-xs transition"
-                  >
-                    ⚡ PING / ECHO
-                  </button>
-                  <button
-                    onClick={() => setInputPayload(JSON.stringify({ msg: 'HELLO_BARQ_CELLULAR', ts: Date.now() }))}
-                    className="px-3 py-1.5 rounded-lg bg-[#050917] hover:bg-slate-800 text-slate-300 border border-cyberBorder font-mono text-xs transition"
-                  >
-                    📡 TEXT PACKET
-                  </button>
+                {/* Quick Templates & Hardware Commands */}
+                <div className="space-y-1.5">
+                  <label className="text-xs text-slate-400 block font-sans">أوامر التحكم السريع بالعتاد:</label>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <button
+                      onClick={() => handleSetCommand('RELAY_ON')}
+                      className="px-3 py-1.5 rounded-lg bg-emerald-950/60 hover:bg-emerald-900/80 text-emerald-300 border border-emerald-500/40 font-mono text-xs transition flex items-center justify-center gap-1.5"
+                    >
+                      <span>🔌</span>
+                      <span>RELAY_ON (تشغيل)</span>
+                    </button>
+                    <button
+                      onClick={() => handleSetCommand('RELAY_OFF')}
+                      className="px-3 py-1.5 rounded-lg bg-rose-950/60 hover:bg-rose-900/80 text-rose-300 border border-rose-500/40 font-mono text-xs transition flex items-center justify-center gap-1.5"
+                    >
+                      <span>⭕</span>
+                      <span>RELAY_OFF (إطفاء)</span>
+                    </button>
+                    <button
+                      onClick={() => handleSetCommand('STATUS')}
+                      className="px-3 py-1.5 rounded-lg bg-[#050917] hover:bg-slate-800 text-cyanGlow border border-cyan-500/30 font-mono text-xs transition flex items-center justify-center gap-1.5"
+                    >
+                      <span>📊</span>
+                      <span>STATUS_QUERY</span>
+                    </button>
+                    <button
+                      onClick={handleSendPing}
+                      className="px-3 py-1.5 rounded-lg bg-[#050917] hover:bg-slate-800 text-amber-300 border border-amber-500/30 font-mono text-xs transition flex items-center justify-center gap-1.5"
+                    >
+                      <span>⚡</span>
+                      <span>PING / ECHO</span>
+                    </button>
+                  </div>
                 </div>
 
                 {/* Message Payload Input */}
