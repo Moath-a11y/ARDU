@@ -1,0 +1,235 @@
+{
+  "t0": 1792138986132,
+  "startedAt": "2026-10-16T08:23:06.132Z",
+  "steps": [
+    {
+      "id": "A_PREFLIGHT",
+      "status": "PASS",
+      "tMs": 1,
+      "at": "2026-10-16T08:23:06.133Z",
+      "details": {
+        "note": "Using relay endpoint 141.94.45.153:45127 (hhasp-188-161-70-194.run.pinggy-free.link)",
+        "endpoint": {
+          "host": "141.94.45.153",
+          "port": 45127,
+          "hostname": "hhasp-188-161-70-194.run.pinggy-free.link"
+        }
+      }
+    },
+    {
+      "id": "B_OPEN_PORTS",
+      "status": "START",
+      "tMs": 2,
+      "at": "2026-10-16T08:23:06.134Z",
+      "details": {
+        "alpha": "COM3",
+        "bravo": "COM4"
+      }
+    },
+    {
+      "id": "B_OPEN_PORTS",
+      "status": "PASS",
+      "tMs": 7,
+      "at": "2026-10-16T08:23:06.139Z",
+      "details": {
+        "note": "Both COM3 and COM4 opened at 9600 8N1"
+      }
+    },
+    {
+      "id": "C_CONNECT_ALPHA",
+      "status": "START",
+      "tMs": 7,
+      "at": "2026-10-16T08:23:06.139Z",
+      "details": {
+        "deviceId": "ALPHA"
+      }
+    },
+    {
+      "id": "C_CONNECT_ALPHA",
+      "status": "PASS",
+      "tMs": 4446,
+      "at": "2026-10-16T08:23:10.578Z",
+      "details": {
+        "deviceId": "ALPHA",
+        "serverTime": "2026-10-16T08:23:09.104Z",
+        "assignedIp": "10.161.249.47",
+        "note": "ALPHA registered successfully over live GPRS"
+      }
+    },
+    {
+      "id": "D_CONNECT_BRAVO",
+      "status": "START",
+      "tMs": 4446,
+      "at": "2026-10-16T08:23:10.578Z",
+      "details": {
+        "deviceId": "BRAVO"
+      }
+    },
+    {
+      "id": "D_CONNECT_BRAVO",
+      "status": "PASS",
+      "tMs": 9609,
+      "at": "2026-10-16T08:23:15.741Z",
+      "details": {
+        "deviceId": "BRAVO",
+        "serverTime": "2026-10-16T08:23:14.796Z",
+        "assignedIp": "10.129.185.248",
+        "note": "BRAVO registered successfully over live GPRS"
+      }
+    },
+    {
+      "id": "E_RELAY_A_TO_B",
+      "status": "START",
+      "tMs": 9609,
+      "at": "2026-10-16T08:23:15.741Z",
+      "details": {
+        "from": "ALPHA",
+        "to": "BRAVO"
+      }
+    },
+    {
+      "id": "RECV_AT_BRAVO",
+      "status": "PASS",
+      "tMs": 14396,
+      "at": "2026-10-16T08:23:20.528Z",
+      "details": {
+        "from": "ALPHA",
+        "msgId": "ALPHA-1792138995741-1",
+        "payload": "{\"ping\":\"BARQ_LIVE_PING\",\"seq\":1,\"ts\":\"2026-10-16T08:23:15.741Z\"}",
+        "note": "BRAVO received RELAY message from server"
+      }
+    },
+    {
+      "id": "BRAVO_DELIVERY_ACK_SENT",
+      "status": "PASS",
+      "tMs": 14564,
+      "at": "2026-10-16T08:23:20.696Z",
+      "details": {
+        "msgId": "ALPHA-1792138995741-1"
+      }
+    },
+    {
+      "id": "E_RELAY_A_TO_B",
+      "status": "PASS",
+      "tMs": 19698,
+      "at": "2026-10-16T08:23:25.830Z",
+      "details": {
+        "ack": {
+          "msgId": "ALPHA-1792138995741-1",
+          "status": "DELIVERED"
+        },
+        "sentPayload": "{\"ping\":\"BARQ_LIVE_PING\",\"seq\":1,\"ts\":\"2026-10-16T08:23:15.741Z\"}",
+        "receivedAtBravo": "{\"ping\":\"BARQ_LIVE_PING\",\"seq\":1,\"ts\":\"2026-10-16T08:23:15.741Z\"}",
+        "note": "DELIVERY_ACK confirmed for ALPHA -> BRAVO relay"
+      }
+    },
+    {
+      "id": "F_RELAY_B_TO_A",
+      "status": "START",
+      "tMs": 19698,
+      "at": "2026-10-16T08:23:25.830Z",
+      "details": {
+        "from": "BRAVO",
+        "to": "ALPHA"
+      }
+    },
+    {
+      "id": "RECV_AT_ALPHA",
+      "status": "PASS",
+      "tMs": 39837,
+      "at": "2026-10-16T08:23:45.969Z",
+      "details": {
+        "from": "BRAVO",
+        "msgId": "BRAVO-1792139005830-2",
+        "payload": "{\"pong\":\"BARQ_LIVE_PONG\",\"seq\":2,\"inReplyTo\":\"ALPHA-1792138995741-1\",\"ts\":\"2026-10-16T08:23:25.830Z\"}",
+        "note": "ALPHA received RELAY reply from server"
+      }
+    },
+    {
+      "id": "ALPHA_DELIVERY_ACK_SENT",
+      "status": "PASS",
+      "tMs": 40005,
+      "at": "2026-10-16T08:23:46.137Z",
+      "details": {
+        "msgId": "BRAVO-1792139005830-2"
+      }
+    },
+    {
+      "id": "F_RELAY_B_TO_A",
+      "status": "PASS",
+      "tMs": 42354,
+      "at": "2026-10-16T08:23:48.486Z",
+      "details": {
+        "ack": {
+          "msgId": "BRAVO-1792139005830-2",
+          "status": "DELIVERED"
+        },
+        "sentPayload": "{\"pong\":\"BARQ_LIVE_PONG\",\"seq\":2,\"inReplyTo\":\"ALPHA-1792138995741-1\",\"ts\":\"2026-10-16T08:23:25.830Z\"}",
+        "receivedAtAlpha": "{\"pong\":\"BARQ_LIVE_PONG\",\"seq\":2,\"inReplyTo\":\"ALPHA-1792138995741-1\",\"ts\":\"2026-10-16T08:23:25.830Z\"}",
+        "note": "DELIVERY_ACK confirmed for BRAVO -> ALPHA reply"
+      }
+    },
+    {
+      "id": "G_CLEANUP",
+      "status": "START",
+      "tMs": 42354,
+      "at": "2026-10-16T08:23:48.486Z",
+      "details": {
+        "note": "Teardown all TCP sockets, PDP contexts, and serial ports"
+      }
+    },
+    {
+      "id": "G_ALPHA_DISCONNECT",
+      "status": "PASS",
+      "tMs": 43064,
+      "at": "2026-10-16T08:23:49.196Z",
+      "details": null
+    },
+    {
+      "id": "G_BRAVO_DISCONNECT",
+      "status": "PASS",
+      "tMs": 45843,
+      "at": "2026-10-16T08:23:51.975Z",
+      "details": null
+    },
+    {
+      "id": "G_ALPHA_PORT_CLOSED",
+      "status": "PASS",
+      "tMs": 45844,
+      "at": "2026-10-16T08:23:51.976Z",
+      "details": null
+    },
+    {
+      "id": "G_BRAVO_PORT_CLOSED",
+      "status": "PASS",
+      "tMs": 45845,
+      "at": "2026-10-16T08:23:51.977Z",
+      "details": null
+    }
+  ],
+  "messages": [],
+  "outcome": {
+    "success": true,
+    "reason": "BIDIRECTIONAL_RELAY_VERIFIED",
+    "extra": {
+      "alphaIp": "10.161.249.47",
+      "bravoIp": "10.129.185.248",
+      "relayAtoB": {
+        "sent": "{\"ping\":\"BARQ_LIVE_PING\",\"seq\":1,\"ts\":\"2026-10-16T08:23:15.741Z\"}",
+        "ack": {
+          "msgId": "ALPHA-1792138995741-1",
+          "status": "DELIVERED"
+        }
+      },
+      "relayBtoA": {
+        "sent": "{\"pong\":\"BARQ_LIVE_PONG\",\"seq\":2,\"inReplyTo\":\"ALPHA-1792138995741-1\",\"ts\":\"2026-10-16T08:23:25.830Z\"}",
+        "ack": {
+          "msgId": "BRAVO-1792139005830-2",
+          "status": "DELIVERED"
+        }
+      }
+    },
+    "finishedAt": "2026-10-16T08:23:48.486Z",
+    "durationMs": 42354
+  }
+}

@@ -1,0 +1,1308 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BARQ LINK · واجهة التحكم والتشغيل الحية لمودمات GSM المزدوجة</title>
+  
+  <!-- Google Fonts (with display=swap for fast render) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700;800&family=Cairo:wght@400;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            cyberDark: '#030611',
+            cyberCard: 'rgba(9, 14, 28, 0.94)',
+            cyberBorder: 'rgba(255, 255, 255, 0.08)',
+            cyanGlow: '#00f0ff',
+            magentaGlow: '#d946ef',
+            neonGreen: '#00ff88',
+            neonAmber: '#ffaa00',
+            neonRed: '#ff3366',
+            neonBlue: '#38bdf8'
+          },
+          fontFamily: {
+            cyber: ['"Chakra Petch"', 'sans-serif'],
+            cairo: ['Cairo', 'sans-serif'],
+            mono: ['"JetBrains Mono"', 'monospace']
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- React 18 & Babel — LOCAL with CDN Fallback -->
+  <script src="/node_modules/react/umd/react.production.min.js"></script>
+  <script src="/node_modules/react-dom/umd/react-dom.production.min.js"></script>
+  <script src="/node_modules/@babel/standalone/babel.min.js"></script>
+  <script>
+    if (typeof React === 'undefined') {
+      document.write('<script src="https://unpkg.com/react@18/umd/react.production.min.js"><\/script>');
+      document.write('<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"><\/script>');
+      document.write('<script src="https://unpkg.com/@babel/standalone/babel.min.js"><\/script>');
+    }
+  </script>
+
+  <style>
+    * { font-family: 'Cairo', sans-serif; box-sizing: border-box; }
+    body {
+      background-color: #030611;
+      background-image: 
+        radial-gradient(circle at 12% 18%, rgba(0, 240, 255, 0.08) 0%, transparent 45%),
+        radial-gradient(circle at 88% 18%, rgba(217, 70, 239, 0.08) 0%, transparent 45%),
+        linear-gradient(rgba(255, 255, 255, 0.012) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.012) 1px, transparent 1px);
+      background-size: 100% 100%, 100% 100%, 32px 32px, 32px 32px;
+      color: #f1f5f9;
+      min-height: 100vh;
+    }
+    .font-cyber { font-family: 'Chakra Petch', 'Cairo', sans-serif; }
+    .font-mono { font-family: 'JetBrains Mono', monospace; }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.2); border-radius: 4px; }
+    .badge-glow-cyan { box-shadow: 0 0 12px rgba(0, 240, 255, 0.3); }
+    .badge-glow-magenta { box-shadow: 0 0 12px rgba(217, 70, 239, 0.3); }
+    .badge-glow-green { box-shadow: 0 0 12px rgba(0, 255, 136, 0.3); }
+    .badge-glow-red { box-shadow: 0 0 12px rgba(255, 51, 102, 0.3); }
+    @keyframes pulse-cyan {
+      0%, 100% { opacity: 1; filter: drop-shadow(0 0 8px #00f0ff); }
+      50% { opacity: 0.4; filter: drop-shadow(0 0 2px #00f0ff); }
+    }
+    .pulse-glow-cyan { animation: pulse-cyan 2s infinite ease-in-out; }
+    @keyframes pulse-magenta {
+      0%, 100% { opacity: 1; filter: drop-shadow(0 0 8px #d946ef); }
+      50% { opacity: 0.4; filter: drop-shadow(0 0 2px #d946ef); }
+    }
+    .pulse-glow-magenta { animation: pulse-magenta 2s infinite ease-in-out; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    // Dynamic Production & Cloud URL Resolution (auto-detects hostname, port & protocol)
+    const getBaseApiUrl = () => {
+      if (window.BARQ_API_BASE) return window.BARQ_API_BASE;
+      if (window.location && window.location.port === '5173') return 'http://localhost:4000/api';
+      if (window.location && window.location.protocol.startsWith('http')) {
+        return window.location.origin + '/api';
+      }
+      return 'http://localhost:4000/api';
+    };
+
+    const getWsUrl = () => {
+      if (window.BARQ_WS_URL) return window.BARQ_WS_URL;
+      if (window.location && window.location.port === '5173') return 'ws://localhost:4001';
+      if (window.location && window.location.protocol.startsWith('http')) {
+        const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        return `${proto}//${window.location.host}`;
+      }
+      return 'ws://localhost:4001';
+    };
+
+    const API_BASE = getBaseApiUrl();
+    const WS_URL = getWsUrl();
+
+    function App() {
+      const [wsConnected, setWsConnected] = useState(false);
+      const [snapshot, setSnapshot] = useState(null);
+      const [messages, setMessages] = useState([]);
+      const [events, setEvents] = useState([]);
+      const [activeTab, setActiveTab] = useState('ALL');
+      const [senderNode, setSenderNode] = useState('ALPHA');
+      const [inputPayload, setInputPayload] = useState('{"ping":"BARQ_LIVE_PING","seq":1}');
+      const [isTransmitting, setIsTransmitting] = useState(false);
+      const [activeTxState, setActiveTxState] = useState(null);
+      const [loadingAction, setLoadingAction] = useState({});
+      const [confirmModal, setConfirmModal] = useState({ open: false, title: '', message: '', action: null });
+      const [toast, setToast] = useState(null);
+      const [defaultEndpoint, setDefaultEndpoint] = useState(null);
+
+      // Deduplicated messages setter — prevents duplicate rows when WS snapshot and REST
+      // fetch both carry the same message id (e.g. sent message reflected back as received).
+      const setMessagesSafe = (list) => {
+        const seen = new Set();
+        const deduped = [];
+        for (const m of list) {
+          if (!seen.has(m.id)) { seen.add(m.id); deduped.push(m); }
+        }
+        setMessages(deduped);
+      };
+
+      const receiverNode = senderNode === 'ALPHA' ? 'BRAVO' : 'ALPHA';
+
+      const showToast = (text, type = 'info') => {
+        setToast({ text, type, id: Date.now() });
+        setTimeout(() => setToast(null), 4000);
+      };
+
+      // Add audit event to log
+      const addEvent = (type, node, title, detail, status = 'INFO') => {
+        const time = new Date().toLocaleTimeString('ar-EG', { hour12: false });
+        const newEvt = {
+          id: 'ev_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
+          timestamp: time,
+          type,
+          node,
+          title,
+          detail: typeof detail === 'object' ? JSON.stringify(detail) : String(detail),
+          status
+        };
+        setEvents(prev => [newEvt, ...prev].slice(0, 150));
+      };
+
+      // Set action loading state
+      const setActionBusy = (key, busy) => {
+        setLoadingAction(prev => ({ ...prev, [key]: busy }));
+      };
+
+      // Fetch snapshot from REST API
+      const fetchSnapshot = async () => {
+        try {
+          const res = await fetch(`${API_BASE}/nodes`);
+          if (res.ok) {
+            const data = await res.json();
+            setSnapshot(data);
+            if (data.messages) setMessagesSafe(data.messages);
+            if (data.defaultEndpoint) setDefaultEndpoint(data.defaultEndpoint);
+          }
+        } catch (e) {
+          // Backend may be starting
+        }
+      };
+
+      // Fetch message history
+      const fetchMessages = async () => {
+        try {
+          const res = await fetch(`${API_BASE}/relay/messages`);
+          if (res.ok) {
+            const list = await res.json();
+            setMessagesSafe(list);
+          }
+        } catch (_) {}
+      };
+
+      // Fetch tunnel endpoint
+      const fetchEndpoint = async () => {
+        try {
+          const res = await fetch(`${API_BASE}/tunnel/endpoint`);
+          if (res.ok) {
+            const ep = await res.json();
+            setDefaultEndpoint(ep);
+          }
+        } catch (_) {}
+      };
+
+      // WebSocket listener
+      useEffect(() => {
+        let ws;
+        let reconnectTimer;
+
+        function connect() {
+          ws = new WebSocket(WS_URL);
+
+          ws.onopen = () => {
+            setWsConnected(true);
+            addEvent('SYSTEM', 'CORE', 'الاتصال بـ WebSocket نشط', 'تم فتح قناة البث الحي مع الخادم', 'PASS');
+            fetchSnapshot();
+            fetchMessages();
+            fetchEndpoint();
+          };
+
+          ws.onmessage = (event) => {
+            try {
+              const msg = JSON.parse(event.data);
+              const { type, data } = msg;
+
+              switch (type) {
+                case 'INIT_SNAPSHOT':
+                case 'NODE_SNAPSHOT': {
+                  const snap = data.snapshot || data;
+                  setSnapshot(snap);
+                  if (snap && snap.messages) {
+                    setMessagesSafe(snap.messages);
+                  }
+                  if (snap && snap.defaultEndpoint) {
+                    setDefaultEndpoint(snap.defaultEndpoint);
+                  }
+                  break;
+                }
+
+                case 'TUNNEL_ENDPOINT_UPDATED':
+                  setDefaultEndpoint(data);
+                  addEvent('TUNNEL', 'RELAY', `تحديث نفق الاتصال الحي`, `${data.hostname || data.host}:${data.port}`, 'INFO');
+                  break;
+
+                case 'NODE_STATE_CHANGE':
+                  addEvent('SERIAL', data.nodeId, `تغيير حالة المنفذ: ${data.newState}`, data.reason || '', 'INFO');
+                  break;
+
+                case 'GPRS_STATE_CHANGE':
+                  addEvent('GPRS/TCP', data.nodeId, `تغيير حالة GPRS: ${data.newState}`, data.details || '', 'INFO');
+                  break;
+
+                case 'RELAY_STATE_CHANGE':
+                  addEvent('RELAY', data.nodeId, `تغيير حالة Relay: ${data.state}`, data.details || '', 'PASS');
+                  break;
+
+                case 'RELAY_MESSAGE_QUEUED':
+                  addEvent('RELAY', data.from, `تم إدراج الرسالة في الطابور (${data.id})`, `الهدف: ${data.to}`, 'INFO');
+                  break;
+
+                case 'RELAY_MESSAGE_SENT':
+                  addEvent('RELAY', data.from, `تم إرسال الرسالة للمودم (SEND OK)`, `الهدف: ${data.to} (بانتظار DELIVERY_ACK)`, 'PASS');
+                  break;
+
+                case 'RELAY_MESSAGE_DELIVERED':
+                  addEvent('DELIVERY_ACK', data.from, `تم تأكيد التسليم النهائي بنجاح! ✅`, `من ${data.from} إلى ${data.to} خلال ${data.rttMs}ms`, 'PASS');
+                  fetchMessages();
+                  break;
+
+                case 'RELAY_MESSAGE_FAILED':
+                  addEvent('ERROR', data.from, `فشل تسليم الرسالة: ${data.error}`, `الهدف: ${data.to}`, 'FAIL');
+                  break;
+
+                case 'RELAY_MESSAGE_RECEIVED':
+                  addEvent('RELAY', data.to, `استلام رسالة واردة من ${data.from}`, data.payload, 'PASS');
+                  fetchMessages();
+                  break;
+
+                case 'DELIVERY_ACK_SENT':
+                  addEvent('DELIVERY_ACK', data.nodeId, `إرسال تأكيد الاستلام DELIVERY_ACK`, `msgId: ${data.msgId}`, 'PASS');
+                  break;
+
+                case 'RAW_AT_EVENT':
+                  addEvent('SERIAL', data.nodeId, `UART ${data.dir}`, data.command || data.raw, 'INFO');
+                  break;
+
+                case 'EMERGENCY_STOP':
+                  addEvent('SYSTEM', 'ALL', '🚨 تنفيذ إيقاف الطوارئ الشامل', JSON.stringify(data), 'WARN');
+                  break;
+
+                default:
+                  break;
+              }
+            } catch (err) {}
+          };
+
+          ws.onclose = () => {
+            setWsConnected(false);
+            reconnectTimer = setTimeout(connect, 3000);
+          };
+
+          ws.onerror = () => {
+            setWsConnected(false);
+          };
+        }
+
+        connect();
+        const pollInterval = setInterval(fetchSnapshot, 4000);
+
+        return () => {
+          if (ws) ws.close();
+          clearInterval(pollInterval);
+          clearTimeout(reconnectTimer);
+        };
+      }, []);
+
+      // ── API Actions ──────────────────────────────────────────
+
+      const openSerial = async (nodeId) => {
+        setActionBusy(`${nodeId}_open`, true);
+        try {
+          const res = await fetch(`${API_BASE}/nodes/${nodeId}/serial/open`, { method: 'POST' });
+          const json = await res.json();
+          if (json.success) {
+            showToast(`تم فتح منفذ ${nodeId} (${json.port}) بنجاح`, 'success');
+            addEvent('SERIAL', nodeId, 'فتح المنفذ التسلسلي', `تم فتح ${json.port} بسرعة 9600 8N1`, 'PASS');
+          } else {
+            showToast(`فشل فتح ${nodeId}: ${json.error}`, 'error');
+            addEvent('ERROR', nodeId, 'فشل فتح المنفذ', json.error, 'FAIL');
+          }
+        } catch (e) {
+          showToast(`خطأ في الاتصال: ${e.message}`, 'error');
+        } finally {
+          setActionBusy(`${nodeId}_open`, false);
+          fetchSnapshot();
+        }
+      };
+
+      const closeSerial = async (nodeId) => {
+        setActionBusy(`${nodeId}_close`, true);
+        try {
+          const res = await fetch(`${API_BASE}/nodes/${nodeId}/serial/close`, { method: 'POST' });
+          const json = await res.json();
+          if (json.success) {
+            showToast(`تم إغلاق منفذ ${nodeId} بأمان`, 'info');
+            addEvent('SERIAL', nodeId, 'إغلاق المنفذ التسلسلي', `تم تحرير المنفذ ${json.port}`, 'PASS');
+          } else {
+            showToast(`فشل إغلاق ${nodeId}: ${json.error}`, 'error');
+          }
+        } catch (e) {
+          showToast(`خطأ: ${e.message}`, 'error');
+        } finally {
+          setActionBusy(`${nodeId}_close`, false);
+          fetchSnapshot();
+        }
+      };
+
+      const initGprs = async (nodeId) => {
+        setActionBusy(`${nodeId}_gprs`, true);
+        addEvent('GPRS/TCP', nodeId, 'بدء تفعيل GPRS...', 'تهيئة APN ووضع Buffer Access وتفعيل سياق PDP', 'INFO');
+        try {
+          const res = await fetch(`${API_BASE}/nodes/${nodeId}/relay/init-gprs`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ apn: 'internet' })
+          });
+          const json = await res.json();
+          if (json.success) {
+            showToast(`تم تفعيل GPRS لـ ${nodeId} بنجاح! IP: ${json.ip}`, 'success');
+            addEvent('GPRS/TCP', nodeId, 'نجاح تفعيل GPRS وPDP', `عنوان IP الخلوي: ${json.ip}`, 'PASS');
+          } else {
+            showToast(`فشل تفعيل GPRS لـ ${nodeId}: ${json.error}`, 'error');
+            addEvent('ERROR', nodeId, 'فشل تفعيل GPRS', json.error, 'FAIL');
+          }
+        } catch (e) {
+          showToast(`خطأ: ${e.message}`, 'error');
+        } finally {
+          setActionBusy(`${nodeId}_gprs`, false);
+          fetchSnapshot();
+        }
+      };
+
+      const connectRelay = async (nodeId) => {
+        setActionBusy(`${nodeId}_relay`, true);
+        addEvent('RELAY', nodeId, 'بدء الاتصال بخادم Relay...', 'إنشاء سوكت TCP وإرسال مصافحة REGISTER', 'INFO');
+        try {
+          const res = await fetch(`${API_BASE}/nodes/${nodeId}/relay/connect`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ apn: 'internet' })
+          });
+          const json = await res.json();
+          if (json.success) {
+            showToast(`تم تسجيل ${nodeId} في خادم Relay بنجاح! (REGISTER_ACK)`, 'success');
+            addEvent('RELAY', nodeId, 'تم التسجيل في Relay Server (REGISTER_ACK)', `الخادم: ${json.relayHost}:${json.relayPort}`, 'PASS');
+          } else {
+            showToast(`فشل تسجيل ${nodeId} في Relay: ${json.error}`, 'error');
+            addEvent('ERROR', nodeId, 'فشل الاتصال بـ Relay', json.error, 'FAIL');
+          }
+        } catch (e) {
+          showToast(`خطأ: ${e.message}`, 'error');
+        } finally {
+          setActionBusy(`${nodeId}_relay`, false);
+          fetchSnapshot();
+        }
+      };
+
+      const disconnectRelay = async (nodeId) => {
+        setActionBusy(`${nodeId}_disrelay`, true);
+        try {
+          const res = await fetch(`${API_BASE}/nodes/${nodeId}/relay/disconnect`, { method: 'POST' });
+          const json = await res.json();
+          if (json.success) {
+            showToast(`تم فصل جلسة Relay لـ ${nodeId}`, 'info');
+            addEvent('RELAY', nodeId, 'فصل جلسة Relay', 'تم إغلاق مقبس TCP وتعطيل PDP', 'PASS');
+          }
+        } catch (e) {
+          showToast(`خطأ: ${e.message}`, 'error');
+        } finally {
+          setActionBusy(`${nodeId}_disrelay`, false);
+          fetchSnapshot();
+        }
+      };
+
+      const refreshStatus = async (nodeId) => {
+        setActionBusy(`${nodeId}_refresh`, true);
+        try {
+          const res = await fetch(`${API_BASE}/nodes/${nodeId}/status/refresh`, { method: 'POST' });
+          const json = await res.json();
+          if (json.success) {
+            showToast(`تم تحديث حالة ${nodeId}`, 'success');
+            addEvent('SERIAL', nodeId, 'تحديث الحالة الفيزيائية', 'تم تنفيذ AT/CPIN/CSQ/CREG/CBC', 'PASS');
+          } else {
+            showToast(`فشل التحديث: ${json.error}`, 'error');
+          }
+        } catch (e) {
+          showToast(`خطأ: ${e.message}`, 'error');
+        } finally {
+          setActionBusy(`${nodeId}_refresh`, false);
+          fetchSnapshot();
+        }
+      };
+
+      const handleSendMessage = async () => {
+        if (!inputPayload || !inputPayload.trim()) {
+          showToast('يرجى كتابة نص الرسالة أولاً', 'error');
+          return;
+        }
+
+        setIsTransmitting(true);
+        const t0 = Date.now();
+        setActiveTxState({
+          status: 'QUEUED',
+          from: senderNode,
+          to: receiverNode,
+          payload: inputPayload,
+          startedAt: new Date().toLocaleTimeString('ar-EG', { hour12: false })
+        });
+
+        try {
+          setActiveTxState(prev => ({ ...prev, status: 'SENT' }));
+          const res = await fetch(`${API_BASE}/relay/send`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              from: senderNode,
+              to: receiverNode,
+              payload: inputPayload,
+              timeoutMs: 30000
+            })
+          });
+
+          const json = await res.json();
+          if (json.success) {
+            setActiveTxState(prev => ({
+              ...prev,
+              status: 'DELIVERED',
+              rttMs: json.message.rttMs,
+              msgId: json.message.id
+            }));
+            showToast(`✅ تم استلام إقرار التسليم الحقيقي (DELIVERY_ACK) خلال ${json.message.rttMs}ms`, 'success');
+          } else {
+            setActiveTxState(prev => ({ ...prev, status: 'FAILED', error: json.error }));
+            showToast(`❌ فشل التسليم: ${json.error}`, 'error');
+          }
+        } catch (e) {
+          setActiveTxState(prev => ({ ...prev, status: 'FAILED', error: e.message }));
+          showToast(`خطأ في الإرسال: ${e.message}`, 'error');
+        } finally {
+          setIsTransmitting(false);
+          fetchSnapshot();
+          fetchMessages();
+        }
+      };
+
+      const handleSendPing = () => {
+        const pingPayload = JSON.stringify({
+          ping: 'BARQ_LIVE_PING',
+          seq: Math.floor(Math.random() * 1000),
+          time: new Date().toISOString()
+        });
+        setInputPayload(pingPayload);
+      };
+
+      const handleEmergencyStop = async () => {
+        setConfirmModal({
+          open: true,
+          title: '🚨 إيقاف الطوارئ الشامل (STOP ALL)',
+          message: 'سيتم فوراً إغلاق جميع مقابس TCP وتعطيل اتصالات GPRS وإغلاق المنفذين COM3 وCOM4 بأمان. هل أنت متأكد؟',
+          action: async () => {
+            try {
+              const res = await fetch(`${API_BASE}/emergency/stop-all`, { method: 'POST' });
+              const json = await res.json();
+              if (json.success) {
+                showToast('تم تنفيذ إيقاف الطوارئ وتحرير جميع الموارد بنجاح', 'success');
+              }
+            } catch (e) {
+              showToast(`خطأ في إيقاف الطوارئ: ${e.message}`, 'error');
+            } finally {
+              fetchSnapshot();
+            }
+          }
+        });
+      };
+
+      // Nodes extraction from snapshot
+      const alphaNode = snapshot && snapshot.nodes ? snapshot.nodes.ALPHA : null;
+      const bravoNode = snapshot && snapshot.nodes ? snapshot.nodes.BRAVO : null;
+
+      // Filter events
+      const filteredEvents = events.filter(e => {
+        if (activeTab === 'ALL') return true;
+        if (activeTab === 'SERIAL') return e.type === 'SERIAL';
+        if (activeTab === 'GPRS/TCP') return e.type === 'GPRS/TCP';
+        if (activeTab === 'RELAY') return e.type === 'RELAY';
+        if (activeTab === 'DELIVERY_ACK') return e.type === 'DELIVERY_ACK';
+        if (activeTab === 'ERROR') return e.type === 'ERROR' || e.status === 'FAIL';
+        return true;
+      });
+
+      return (
+        <div className="min-h-screen flex flex-col justify-between text-slate-100 p-3 md:p-6 max-w-7xl mx-auto space-y-6">
+          
+          {/* TOAST NOTIFICATION */}
+          {toast && (
+            <div className={`fixed top-5 left-1/2 -translate-x-1/2 z-50 px-5 py-3 rounded-xl border text-sm font-bold shadow-2xl transition-all duration-300 flex items-center gap-3 ${
+              toast.type === 'success' ? 'bg-emerald-950/90 text-emerald-300 border-emerald-500/50 shadow-emerald-500/20' :
+              toast.type === 'error' ? 'bg-rose-950/90 text-rose-300 border-rose-500/50 shadow-rose-500/20' :
+              'bg-cyan-950/90 text-cyan-300 border-cyan-500/50 shadow-cyan-500/20'
+            }`}>
+              <span>{toast.type === 'success' ? '✅' : toast.type === 'error' ? '❌' : 'ℹ️'}</span>
+              <span>{toast.text}</span>
+            </div>
+          )}
+
+          {/* CONFIRMATION MODAL */}
+          {confirmModal.open && (
+            <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="bg-[#090e1c] border border-cyberBorder rounded-2xl p-6 max-w-md w-full space-y-4 shadow-2xl">
+                <h3 className="font-cyber font-extrabold text-lg text-rose-400">{confirmModal.title}</h3>
+                <p className="text-sm text-slate-300 leading-relaxed font-sans">{confirmModal.message}</p>
+                <div className="flex gap-3 justify-end pt-3">
+                  <button
+                    onClick={() => setConfirmModal({ open: false })}
+                    className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 hover:bg-slate-700 text-xs font-bold transition"
+                  >
+                    إلغاء
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (confirmModal.action) confirmModal.action();
+                      setConfirmModal({ open: false });
+                    }}
+                    className="px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-extrabold shadow-lg shadow-rose-600/30 transition"
+                  >
+                    تأكيد التنفيذ
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TOP HEADER */}
+          <header className="bg-cyberCard border border-cyberBorder rounded-2xl p-4 md:p-6 backdrop-blur-md shadow-2xl">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-3">
+                  <span className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-cyanGlow via-neonBlue to-magentaGlow tracking-wider font-cyber">
+                    BARQ LINK
+                  </span>
+                  <span className="bg-cyanGlow/10 text-cyanGlow border border-cyanGlow/30 text-[11px] font-mono px-2.5 py-0.5 rounded-full font-bold">
+                    LIVE HARDWARE CONSOLE
+                  </span>
+                </div>
+                <p className="text-xs text-slate-400 mt-1 font-sans">
+                  منظومة التحكم والتشغيل الحية لمودمات Quectel M25 المزدوجة (ALPHA على COM3 و BRAVO على COM4)
+                </p>
+              </div>
+
+              {/* Status Pills & Emergency STOP */}
+              <div className="flex flex-wrap items-center gap-2.5">
+                {/* WebSocket status */}
+                <div className={`px-3 py-1.5 rounded-xl border text-xs font-mono font-bold flex items-center gap-2 ${
+                  wsConnected ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30 badge-glow-green' : 'bg-rose-500/10 text-rose-400 border-rose-500/30'
+                }`}>
+                  <span className={`w-2 h-2 rounded-full ${wsConnected ? 'bg-emerald-400 animate-ping' : 'bg-rose-500'}`}></span>
+                  <span>{wsConnected ? 'WEBSOCKET: LIVE' : 'WS: RECONNECTING'}</span>
+                </div>
+
+                {/* Tunnel Endpoint with age indicator */}
+                {(() => {
+                  const ep = defaultEndpoint || (snapshot ? snapshot.defaultEndpoint : null);
+                  let tunnelAgeMin = null;
+                  let tunnelColor = 'text-cyanGlow border-cyberBorder';
+                  let tunnelBg = 'bg-[#050917]';
+                  let tunnelWarn = null;
+                  if (ep && ep.timestamp) {
+                    tunnelAgeMin = Math.floor((Date.now() - new Date(ep.timestamp).getTime()) / 60000);
+                    if (tunnelAgeMin >= 90) {
+                      tunnelColor = 'text-rose-400 border-rose-500/40';
+                      tunnelBg = 'bg-rose-500/10';
+                      tunnelWarn = `⚠️ النفق منذ ${tunnelAgeMin} د — قد يكون انتهى`;
+                    } else if (tunnelAgeMin >= 45) {
+                      tunnelColor = 'text-amber-400 border-amber-500/40';
+                      tunnelBg = 'bg-amber-500/10';
+                      tunnelWarn = `⏱ النفق منذ ${tunnelAgeMin} د — سيتجدد قريباً`;
+                    }
+                  }
+                  return (
+                    <div
+                      onClick={fetchEndpoint}
+                      className={`${tunnelBg} border ${tunnelColor} px-3 py-1.5 rounded-xl text-xs font-mono flex flex-col items-start gap-0.5 cursor-pointer hover:brightness-125 transition select-none`}
+                      title={(tunnelWarn ? tunnelWarn + ' — ' : '') + 'انقر لتحديث فحص النفق'}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="text-slate-400">TUNNEL:</span>
+                        <span className={`font-bold ${tunnelColor}`}>
+                          {ep ? `${ep.hostname || ep.host}:${ep.port}` : 'CONNECTING...'}
+                        </span>
+                        {ep && ep.ip && ep.ip !== (ep.hostname || ep.host) && (
+                          <span className="text-[10px] text-emerald-400 font-mono">[{ep.ip}]</span>
+                        )}
+                        {tunnelAgeMin !== null && (
+                          <span className="text-[10px] opacity-70">{tunnelAgeMin}m</span>
+                        )}
+                        <span className="text-[10px] opacity-60">🔄</span>
+                      </div>
+                      {tunnelWarn && (
+                        <span className={`text-[10px] font-sans ${tunnelColor}`}>{tunnelWarn}</span>
+                      )}
+                    </div>
+                  );
+                })()}
+
+                {/* Public Web Console Link */}
+                {(() => {
+                  const ep = defaultEndpoint || (snapshot ? snapshot.defaultEndpoint : null);
+                  if (!ep || !ep.webUrl) return null;
+                  return (
+                    <a
+                      href={ep.webUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="bg-emerald-950/60 border border-emerald-500/40 text-emerald-300 px-3 py-1.5 rounded-xl text-xs font-mono font-bold flex items-center gap-1.5 hover:bg-emerald-900/60 transition shadow-lg shadow-emerald-950/30"
+                      title="رابط لوحة التحكم العام المشفر (HTTPS) المتاح من أي هاتف أو متصفح خارج الشبكة المحلية"
+                    >
+                      <span className="text-emerald-400">🌐 CLOUD WEB:</span>
+                      <span className="underline underline-offset-2">{ep.webUrl.replace(/^https?:\/\//, '')}</span>
+                      <span className="text-[10px]">↗</span>
+                    </a>
+                  );
+                })()}
+
+
+                {/* Emergency STOP ALL button */}
+                <button
+                  onClick={handleEmergencyStop}
+                  className="px-4 py-2 rounded-xl bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white font-cyber font-extrabold text-xs shadow-lg shadow-rose-600/30 badge-glow-red transition flex items-center gap-2"
+                >
+                  <span>🚨</span>
+                  <span>STOP ALL</span>
+                </button>
+              </div>
+            </div>
+          </header>
+
+          {/* MAIN GRID */}
+          <main className="space-y-6">
+
+            {/* SECTION A: DEVICE CARDS (ALPHA & BRAVO) */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              
+              {/* NODE ALPHA CARD */}
+              <div className="bg-cyberCard border border-cyan-500/30 rounded-2xl p-5 space-y-4 shadow-xl shadow-cyan-500/5 relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-32 h-32 bg-cyan-500/5 rounded-full blur-2xl pointer-events-none"></div>
+
+                <div className="flex items-center justify-between pb-3 border-b border-cyberBorder">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-500/40 flex items-center justify-center font-cyber font-extrabold text-cyanGlow text-base badge-glow-cyan">
+                      α
+                    </div>
+                    <div>
+                      <h2 className="font-cyber font-extrabold text-lg text-white flex items-center gap-2">
+                        <span>NODE ALPHA</span>
+                        <span className="text-xs font-mono px-2 py-0.5 rounded bg-cyan-950/80 text-cyan-300 border border-cyan-500/30">COM3</span>
+                      </h2>
+                      <span className="text-[11px] text-slate-400 font-mono">Baud=9600 · 8N1 · Quectel M25</span>
+                    </div>
+                  </div>
+
+                  {/* Serial State Pill */}
+                  <span className={`px-2.5 py-1 rounded-lg text-xs font-mono font-extrabold border ${
+                    alphaNode && alphaNode.state !== 'SERIAL_DISCONNECTED' ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/40 badge-glow-green' : 'bg-slate-800 text-slate-400 border-slate-700'
+                  }`}>
+                    {alphaNode && alphaNode.state !== 'SERIAL_DISCONNECTED' ? '● PORT: OPEN' : '○ PORT: CLOSED'}
+                  </span>
+                </div>
+
+                {/* Live Metrics Grid */}
+                <div className="grid grid-cols-2 gap-2 text-xs font-mono">
+                  <div className="bg-[#050814] p-2.5 rounded-xl border border-cyberBorder">
+                    <span className="text-slate-500 block text-[10px]">SIM STATUS</span>
+                    <span className="text-white font-bold block mt-0.5">{alphaNode?.attributes?.simStatus || 'NOT_CHECKED'}</span>
+                  </div>
+
+                  <div className="bg-[#050814] p-2.5 rounded-xl border border-cyberBorder">
+                    <span className="text-slate-500 block text-[10px]">SIGNAL (CSQ)</span>
+                    <span className="text-cyanGlow font-bold block mt-0.5">
+                      {alphaNode?.attributes?.signalCsq != null ? `CSQ ${alphaNode.attributes.signalCsq} (${alphaNode.attributes.signalPct || 0}%)` : 'UNKNOWN'}
+                    </span>
+                  </div>
+
+                  <div className="bg-[#050814] p-2.5 rounded-xl border border-cyberBorder">
+                    <span className="text-slate-500 block text-[10px]">CELLULAR REGISTRATION</span>
+                    <span className="text-slate-300 font-bold block mt-0.5">{alphaNode?.attributes?.gsmRegistration || 'NOT_CHECKED'}</span>
+                  </div>
+
+                  <div className="bg-[#050814] p-2.5 rounded-xl border border-cyberBorder">
+                    <span className="text-slate-500 block text-[10px]">CARRIER IP (PDP)</span>
+                    <span className="text-emerald-400 font-bold block mt-0.5 truncate">{alphaNode?.gprs?.assignedIp || 'INACTIVE'}</span>
+                  </div>
+                </div>
+
+                {/* Relay State Banner */}
+                <div className={`p-3 rounded-xl border flex items-center justify-between text-xs font-mono ${
+                  alphaNode?.relay?.state === 'REGISTERED' ? 'bg-cyan-950/40 border-cyan-500/50 text-cyanGlow badge-glow-cyan' :
+                  alphaNode?.relay?.state === 'CONNECTING' ? 'bg-amber-950/30 border-amber-500/40 text-amber-300' :
+                  'bg-slate-900/60 border-cyberBorder text-slate-400'
+                }`}>
+                  <span className="font-bold flex items-center gap-2">
+                    <span className={`w-2 h-2 rounded-full ${alphaNode?.relay?.state === 'REGISTERED' ? 'bg-cyanGlow pulse-glow-cyan' : 'bg-slate-600'}`}></span>
+                    <span>RELAY SESSION: {alphaNode?.relay?.state || 'IDLE'}</span>
+                  </span>
+                  <span className="text-[11px] text-slate-400">BARQ-RELAY-v1</span>
+                </div>
+
+                {/* Control Action Buttons */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-1">
+                  {(!alphaNode || alphaNode.state === 'SERIAL_DISCONNECTED') ? (
+                    <button
+                      onClick={() => openSerial('ALPHA')}
+                      disabled={loadingAction.ALPHA_open}
+                      className="px-3 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-black font-cyber font-extrabold text-xs shadow-md shadow-cyan-600/30 transition disabled:opacity-50"
+                    >
+                      {loadingAction.ALPHA_open ? 'جاري الفتح...' : '🔌 فتح المنفذ'}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => closeSerial('ALPHA')}
+                      disabled={loadingAction.ALPHA_close}
+                      className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-rose-400 border border-rose-500/30 font-cyber font-extrabold text-xs transition disabled:opacity-50"
+                    >
+                      {loadingAction.ALPHA_close ? 'جاري الإغلاق...' : '❌ إغلاق المنفذ'}
+                    </button>
+                  )}
+
+                  <button
+                    onClick={() => initGprs('ALPHA')}
+                    disabled={alphaNode?.state === 'SERIAL_DISCONNECTED' || loadingAction.ALPHA_gprs}
+                    className="px-3 py-2 rounded-xl bg-[#050917] hover:bg-cyan-950/50 text-cyan-300 border border-cyan-500/30 font-cyber font-bold text-xs transition disabled:opacity-30"
+                  >
+                    {loadingAction.ALPHA_gprs ? 'جاري التفعيل...' : '🌐 تهيئة GPRS'}
+                  </button>
+
+                  {alphaNode?.relay?.state === 'REGISTERED' ? (
+                    <button
+                      onClick={() => disconnectRelay('ALPHA')}
+                      disabled={loadingAction.ALPHA_disrelay}
+                      className="px-3 py-2 rounded-xl bg-rose-950/60 hover:bg-rose-900/60 text-rose-300 border border-rose-500/40 font-cyber font-bold text-xs transition disabled:opacity-30"
+                    >
+                      {loadingAction.ALPHA_disrelay ? 'فصل...' : '⚡ فصل Relay'}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => connectRelay('ALPHA')}
+                      disabled={alphaNode?.state === 'SERIAL_DISCONNECTED' || loadingAction.ALPHA_relay}
+                      className="px-3 py-2 rounded-xl bg-cyan-950/70 hover:bg-cyan-900/70 text-cyanGlow border border-cyan-500/50 font-cyber font-bold text-xs transition disabled:opacity-30"
+                    >
+                      {loadingAction.ALPHA_relay ? 'جاري الربط...' : '🔗 ربط Relay'}
+                    </button>
+                  )}
+
+                  <button
+                    onClick={() => refreshStatus('ALPHA')}
+                    disabled={alphaNode?.state === 'SERIAL_DISCONNECTED' || loadingAction.ALPHA_refresh}
+                    className="px-3 py-2 rounded-xl bg-[#050917] hover:bg-slate-800 text-slate-300 border border-cyberBorder font-sans text-xs transition disabled:opacity-30 col-span-2 sm:col-span-3"
+                  >
+                    {loadingAction.ALPHA_refresh ? 'جاري التحديث...' : '🔄 فحص وتحديث الحالة'}
+                  </button>
+                </div>
+              </div>
+
+              {/* NODE BRAVO CARD */}
+              <div className="bg-cyberCard border border-magenta-500/30 rounded-2xl p-5 space-y-4 shadow-xl shadow-magenta-500/5 relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-32 h-32 bg-magenta-500/5 rounded-full blur-2xl pointer-events-none"></div>
+
+                <div className="flex items-center justify-between pb-3 border-b border-cyberBorder">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-magenta-500/10 border border-magenta-500/40 flex items-center justify-center font-cyber font-extrabold text-magentaGlow text-base badge-glow-magenta">
+                      β
+                    </div>
+                    <div>
+                      <h2 className="font-cyber font-extrabold text-lg text-white flex items-center gap-2">
+                        <span>NODE BRAVO</span>
+                        <span className="text-xs font-mono px-2 py-0.5 rounded bg-fuchsia-950/80 text-fuchsia-300 border border-fuchsia-500/30">COM4</span>
+                      </h2>
+                      <span className="text-[11px] text-slate-400 font-mono">Baud=9600 · 8N1 · Quectel M25</span>
+                    </div>
+                  </div>
+
+                  {/* Serial State Pill */}
+                  <span className={`px-2.5 py-1 rounded-lg text-xs font-mono font-extrabold border ${
+                    bravoNode && bravoNode.state !== 'SERIAL_DISCONNECTED' ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/40 badge-glow-green' : 'bg-slate-800 text-slate-400 border-slate-700'
+                  }`}>
+                    {bravoNode && bravoNode.state !== 'SERIAL_DISCONNECTED' ? '● PORT: OPEN' : '○ PORT: CLOSED'}
+                  </span>
+                </div>
+
+                {/* Live Metrics Grid */}
+                <div className="grid grid-cols-2 gap-2 text-xs font-mono">
+                  <div className="bg-[#050814] p-2.5 rounded-xl border border-cyberBorder">
+                    <span className="text-slate-500 block text-[10px]">SIM STATUS</span>
+                    <span className="text-white font-bold block mt-0.5">{bravoNode?.attributes?.simStatus || 'NOT_CHECKED'}</span>
+                  </div>
+
+                  <div className="bg-[#050814] p-2.5 rounded-xl border border-cyberBorder">
+                    <span className="text-slate-500 block text-[10px]">SIGNAL (CSQ)</span>
+                    <span className="text-magentaGlow font-bold block mt-0.5">
+                      {bravoNode?.attributes?.signalCsq != null ? `CSQ ${bravoNode.attributes.signalCsq} (${bravoNode.attributes.signalPct || 0}%)` : 'UNKNOWN'}
+                    </span>
+                  </div>
+
+                  <div className="bg-[#050814] p-2.5 rounded-xl border border-cyberBorder">
+                    <span className="text-slate-500 block text-[10px]">CELLULAR REGISTRATION</span>
+                    <span className="text-slate-300 font-bold block mt-0.5">{bravoNode?.attributes?.gsmRegistration || 'NOT_CHECKED'}</span>
+                  </div>
+
+                  <div className="bg-[#050814] p-2.5 rounded-xl border border-cyberBorder">
+                    <span className="text-slate-500 block text-[10px]">CARRIER IP (PDP)</span>
+                    <span className="text-emerald-400 font-bold block mt-0.5 truncate">{bravoNode?.gprs?.assignedIp || 'INACTIVE'}</span>
+                  </div>
+                </div>
+
+                {/* Relay State Banner */}
+                <div className={`p-3 rounded-xl border flex items-center justify-between text-xs font-mono ${
+                  bravoNode?.relay?.state === 'REGISTERED' ? 'bg-fuchsia-950/40 border-fuchsia-500/50 text-fuchsia-300 badge-glow-magenta' :
+                  bravoNode?.relay?.state === 'CONNECTING' ? 'bg-amber-950/30 border-amber-500/40 text-amber-300' :
+                  'bg-slate-900/60 border-cyberBorder text-slate-400'
+                }`}>
+                  <span className="font-bold flex items-center gap-2">
+                    <span className={`w-2 h-2 rounded-full ${bravoNode?.relay?.state === 'REGISTERED' ? 'bg-magentaGlow pulse-glow-magenta' : 'bg-slate-600'}`}></span>
+                    <span>RELAY SESSION: {bravoNode?.relay?.state || 'IDLE'}</span>
+                  </span>
+                  <span className="text-[11px] text-slate-400">BARQ-RELAY-v1</span>
+                </div>
+
+                {/* Control Action Buttons */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-1">
+                  {(!bravoNode || bravoNode.state === 'SERIAL_DISCONNECTED') ? (
+                    <button
+                      onClick={() => openSerial('BRAVO')}
+                      disabled={loadingAction.BRAVO_open}
+                      className="px-3 py-2 rounded-xl bg-magentaGlow hover:bg-fuchsia-500 text-black font-cyber font-extrabold text-xs shadow-md shadow-fuchsia-600/30 transition disabled:opacity-50"
+                    >
+                      {loadingAction.BRAVO_open ? 'جاري الفتح...' : '🔌 فتح المنفذ'}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => closeSerial('BRAVO')}
+                      disabled={loadingAction.BRAVO_close}
+                      className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-rose-400 border border-rose-500/30 font-cyber font-extrabold text-xs transition disabled:opacity-50"
+                    >
+                      {loadingAction.BRAVO_close ? 'جاري الإغلاق...' : '❌ إغلاق المنفذ'}
+                    </button>
+                  )}
+
+                  <button
+                    onClick={() => initGprs('BRAVO')}
+                    disabled={bravoNode?.state === 'SERIAL_DISCONNECTED' || loadingAction.BRAVO_gprs}
+                    className="px-3 py-2 rounded-xl bg-[#050917] hover:bg-fuchsia-950/50 text-fuchsia-300 border border-fuchsia-500/30 font-cyber font-bold text-xs transition disabled:opacity-30"
+                  >
+                    {loadingAction.BRAVO_gprs ? 'جاري التفعيل...' : '🌐 تهيئة GPRS'}
+                  </button>
+
+                  {bravoNode?.relay?.state === 'REGISTERED' ? (
+                    <button
+                      onClick={() => disconnectRelay('BRAVO')}
+                      disabled={loadingAction.BRAVO_disrelay}
+                      className="px-3 py-2 rounded-xl bg-rose-950/60 hover:bg-rose-900/60 text-rose-300 border border-rose-500/40 font-cyber font-bold text-xs transition disabled:opacity-30"
+                    >
+                      {loadingAction.BRAVO_disrelay ? 'فصل...' : '⚡ فصل Relay'}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => connectRelay('BRAVO')}
+                      disabled={bravoNode?.state === 'SERIAL_DISCONNECTED' || loadingAction.BRAVO_relay}
+                      className="px-3 py-2 rounded-xl bg-fuchsia-950/70 hover:bg-fuchsia-900/70 text-fuchsia-300 border border-fuchsia-500/50 font-cyber font-bold text-xs transition disabled:opacity-30"
+                    >
+                      {loadingAction.BRAVO_relay ? 'جاري الربط...' : '🔗 ربط Relay'}
+                    </button>
+                  )}
+
+                  <button
+                    onClick={() => refreshStatus('BRAVO')}
+                    disabled={bravoNode?.state === 'SERIAL_DISCONNECTED' || loadingAction.BRAVO_refresh}
+                    className="px-3 py-2 rounded-xl bg-[#050917] hover:bg-slate-800 text-slate-300 border border-cyberBorder font-sans text-xs transition disabled:opacity-30 col-span-2 sm:col-span-3"
+                  >
+                    {loadingAction.BRAVO_refresh ? 'جاري التحديث...' : '🔄 فحص وتحديث الحالة'}
+                  </button>
+                </div>
+              </div>
+
+            </div>
+
+            {/* SECTION D: LIVE NETWORK TOPOLOGY DIAGRAM */}
+            <div className="bg-cyberCard border border-cyberBorder rounded-2xl p-5 space-y-4">
+              <div className="flex items-center justify-between pb-2 border-b border-cyberBorder">
+                <h3 className="font-cyber font-extrabold text-sm text-white flex items-center gap-2">
+                  <span>🗺️ المخطط الحي لحالة الشبكة (Network Topology & Relay Flow)</span>
+                </h3>
+                <span className="text-[11px] font-mono text-slate-400">
+                  Relay Port: 5050 · Pinggy Public Forwarding
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center text-center font-mono py-2">
+                
+                {/* Node ALPHA */}
+                <div className={`p-4 rounded-xl border transition ${
+                  alphaNode?.relay?.state === 'REGISTERED' ? 'bg-cyan-950/30 border-cyan-500 text-cyanGlow badge-glow-cyan' :
+                  alphaNode?.state !== 'SERIAL_DISCONNECTED' ? 'bg-slate-900 border-slate-700 text-slate-300' :
+                  'bg-slate-950/60 border-cyberBorder text-slate-500'
+                }`}>
+                  <span className="text-xs text-slate-400 block">DEVICE A</span>
+                  <span className="font-cyber font-black text-lg text-white block mt-1">ALPHA (COM3)</span>
+                  <span className="text-[11px] block mt-1 text-emerald-400">{alphaNode?.gprs?.assignedIp || 'NO_IP'}</span>
+                  <span className="text-[10px] block mt-1 font-bold">
+                    {alphaNode?.relay?.state === 'REGISTERED' ? '🟢 CONNECTED TO RELAY' : '⚪ DISCONNECTED'}
+                  </span>
+                </div>
+
+                {/* RELAY SERVER CENTER */}
+                <div className="p-4 rounded-xl border border-cyberBorder bg-[#050814] text-center relative">
+                  <div className="w-12 h-12 mx-auto rounded-full bg-cyan-500/10 border border-cyan-500/40 flex items-center justify-center text-xl text-cyanGlow mb-2">
+                    ☁️
+                  </div>
+                  <span className="font-cyber font-extrabold text-sm text-white block">TCP RELAY SERVER</span>
+                  <span className="text-[11px] text-cyanGlow block mt-0.5">PORT 5050</span>
+                  <span className="text-[10px] text-slate-400 block mt-1 font-sans">توجيه الرسائل والتحقق الصريح من DELIVERY_ACK</span>
+                </div>
+
+                {/* Node BRAVO */}
+                <div className={`p-4 rounded-xl border transition ${
+                  bravoNode?.relay?.state === 'REGISTERED' ? 'bg-fuchsia-950/30 border-fuchsia-500 text-fuchsia-300 badge-glow-magenta' :
+                  bravoNode?.state !== 'SERIAL_DISCONNECTED' ? 'bg-slate-900 border-slate-700 text-slate-300' :
+                  'bg-slate-950/60 border-cyberBorder text-slate-500'
+                }`}>
+                  <span className="text-xs text-slate-400 block">DEVICE B</span>
+                  <span className="font-cyber font-black text-lg text-white block mt-1">BRAVO (COM4)</span>
+                  <span className="text-[11px] block mt-1 text-emerald-400">{bravoNode?.gprs?.assignedIp || 'NO_IP'}</span>
+                  <span className="text-[10px] block mt-1 font-bold">
+                    {bravoNode?.relay?.state === 'REGISTERED' ? '🟢 CONNECTED TO RELAY' : '⚪ DISCONNECTED'}
+                  </span>
+                </div>
+
+              </div>
+            </div>
+
+            {/* SECTION B & C: MESSAGE LAB & BIDIRECTIONAL CHAT */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+              {/* MESSAGE LAB CONTROLLER (5 Cols) */}
+              <div className="lg:col-span-5 bg-cyberCard border border-cyberBorder rounded-2xl p-5 space-y-4">
+                <div className="flex items-center justify-between pb-3 border-b border-cyberBorder">
+                  <h3 className="font-cyber font-extrabold text-sm text-white flex items-center gap-2">
+                    <span>🧪 مختبر إرسال الرسائل (Message Lab)</span>
+                  </h3>
+                  <span className="text-[11px] font-mono text-cyanGlow font-bold">BARQ-RELAY-v1</span>
+                </div>
+
+                {/* Direction Switcher */}
+                <div className="space-y-1.5">
+                  <label className="text-xs text-slate-400 block font-sans">اتجاه الإرسال الخلوي:</label>
+                  <div className="grid grid-cols-2 gap-2 font-cyber font-bold text-xs">
+                    <button
+                      onClick={() => setSenderNode('ALPHA')}
+                      className={`py-2 px-3 rounded-xl border transition flex items-center justify-center gap-2 ${
+                        senderNode === 'ALPHA' ? 'bg-cyan-600 text-black border-cyanGlow font-black shadow-md shadow-cyan-600/30' : 'bg-[#050814] text-slate-400 border-cyberBorder hover:text-white'
+                      }`}
+                    >
+                      <span>ALPHA</span>
+                      <span>➔</span>
+                      <span>BRAVO</span>
+                    </button>
+
+                    <button
+                      onClick={() => setSenderNode('BRAVO')}
+                      className={`py-2 px-3 rounded-xl border transition flex items-center justify-center gap-2 ${
+                        senderNode === 'BRAVO' ? 'bg-magentaGlow text-black border-fuchsia-400 font-black shadow-md shadow-fuchsia-600/30' : 'bg-[#050814] text-slate-400 border-cyberBorder hover:text-white'
+                      }`}
+                    >
+                      <span>BRAVO</span>
+                      <span>➔</span>
+                      <span>ALPHA</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Quick Templates */}
+                <div className="flex gap-2 text-xs">
+                  <button
+                    onClick={handleSendPing}
+                    className="px-3 py-1.5 rounded-lg bg-[#050917] hover:bg-slate-800 text-cyanGlow border border-cyan-500/30 font-mono text-xs transition"
+                  >
+                    ⚡ PING / ECHO
+                  </button>
+                  <button
+                    onClick={() => setInputPayload(JSON.stringify({ msg: 'HELLO_BARQ_CELLULAR', ts: Date.now() }))}
+                    className="px-3 py-1.5 rounded-lg bg-[#050917] hover:bg-slate-800 text-slate-300 border border-cyberBorder font-mono text-xs transition"
+                  >
+                    📡 TEXT PACKET
+                  </button>
+                </div>
+
+                {/* Message Payload Input */}
+                <div className="space-y-1.5">
+                  <label className="text-xs text-slate-400 block font-sans">حمولة الرسالة (Payload):</label>
+                  <textarea
+                    rows={4}
+                    value={inputPayload}
+                    onChange={(e) => setInputPayload(e.target.value)}
+                    dir="ltr"
+                    className="w-full bg-[#030611] border border-cyberBorder rounded-xl p-3 text-xs font-mono text-white focus:outline-none focus:border-cyanGlow focus:ring-1 focus:ring-cyanGlow transition"
+                    placeholder='{"key":"value"}'
+                  ></textarea>
+                </div>
+
+                {/* Submit Action */}
+                <button
+                  onClick={handleSendMessage}
+                  disabled={isTransmitting}
+                  className="w-full py-3 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-black font-cyber font-black text-sm shadow-lg shadow-cyan-500/20 transition disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {isTransmitting ? (
+                    <>
+                      <span className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin"></span>
+                      <span>جاري النقل عبر الشبكة الخلوية...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>🚀</span>
+                      <span>إرسال عبر GPRS وانتظار DELIVERY_ACK</span>
+                    </>
+                  )}
+                </button>
+
+                {/* Active Transmission State Card */}
+                {activeTxState && (
+                  <div className="bg-[#030611] border border-cyberBorder rounded-xl p-3.5 space-y-2 text-xs font-mono">
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-400 font-sans">حالة الإرسال النشط:</span>
+                      <span className={`px-2 py-0.5 rounded font-extrabold text-[11px] ${
+                        activeTxState.status === 'DELIVERED' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40' :
+                        activeTxState.status === 'SENT' ? 'bg-blue-500/20 text-blue-400 border border-blue-500/40 animate-pulse' :
+                        activeTxState.status === 'FAILED' ? 'bg-rose-500/20 text-rose-400 border border-rose-500/40' :
+                        'bg-slate-800 text-slate-300'
+                      }`}>
+                        {activeTxState.status}
+                      </span>
+                    </div>
+
+                    {/* Progress steps */}
+                    <div className="grid grid-cols-3 gap-1 text-[10px] text-center pt-1 font-bold">
+                      <div className={`p-1 rounded ${activeTxState.status !== 'IDLE' ? 'bg-cyan-950 text-cyan-300 border border-cyan-500/30' : 'bg-slate-900 text-slate-600'}`}>
+                        1. QUEUED
+                      </div>
+                      <div className={`p-1 rounded ${activeTxState.status === 'SENT' || activeTxState.status === 'DELIVERED' ? 'bg-blue-950 text-blue-300 border border-blue-500/30' : 'bg-slate-900 text-slate-600'}`}>
+                        2. MODEM SEND OK
+                      </div>
+                      <div className={`p-1 rounded ${activeTxState.status === 'DELIVERED' ? 'bg-emerald-950 text-emerald-300 border border-emerald-500/30 badge-glow-green' : 'bg-slate-900 text-slate-600'}`}>
+                        3. DELIVERY_ACK ✅
+                      </div>
+                    </div>
+
+                    {activeTxState.rttMs && (
+                      <div className="text-[11px] text-emerald-400 font-bold text-center pt-1">
+                        ⏱️ زمن الاستجابة الكامل (Round-Trip): {activeTxState.rttMs} ms
+                      </div>
+                    )}
+                    {activeTxState.error && (
+                      <div className="text-[11px] text-rose-400 font-bold pt-1">
+                        خطأ: {activeTxState.error}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* LIVE CHAT & CONVERSATION FEED (7 Cols) */}
+              <div className="lg:col-span-7 bg-cyberCard border border-cyberBorder rounded-2xl p-5 space-y-4 flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center justify-between pb-3 border-b border-cyberBorder">
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-cyber font-extrabold text-sm text-white">
+                        💬 محادثة وتبادل الرسائل ثنائية الاتجاه (Bidirectional Feed)
+                      </h3>
+                      <span className="text-xs text-slate-400 font-mono">({messages.length} رسالة)</span>
+                    </div>
+                    <button
+                      onClick={() => setMessages([])}
+                      className="text-[11px] text-slate-400 hover:text-white px-2 py-1 rounded bg-[#050814] border border-cyberBorder"
+                    >
+                      مسح العرض
+                    </button>
+                  </div>
+
+                  {/* Messages Bubble Stream */}
+                  <div className="h-80 overflow-y-auto space-y-3 p-2 font-mono text-xs mt-2">
+                    {messages.length === 0 ? (
+                      <div className="h-full flex flex-col items-center justify-center text-slate-500 font-sans space-y-2">
+                        <span className="text-3xl">📡</span>
+                        <p>لا توجد رسائل متبادلة بعد.</p>
+                        <p className="text-xs text-slate-600">اختر اتجاه الإرسال واضغط "إرسال عبر GPRS" لمشاهدة الرد الحقيقي.</p>
+                      </div>
+                    ) : (
+                      messages.map((m, idx) => {
+                        const isAlphaSender = m.from === 'ALPHA';
+                        return (
+                          <div
+                            key={m.id || idx}
+                            className={`p-3 rounded-xl border max-w-[85%] space-y-1.5 transition ${
+                              isAlphaSender
+                                ? 'mr-auto bg-cyan-950/20 border-cyan-500/40 text-cyan-100 shadow-md shadow-cyan-500/5'
+                                : 'ml-auto bg-fuchsia-950/20 border-fuchsia-500/40 text-fuchsia-100 shadow-md shadow-fuchsia-500/5'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-4 text-[10px] text-slate-400 border-b border-white/5 pb-1">
+                              <span className="font-bold flex items-center gap-1.5">
+                                <span className={`w-2 h-2 rounded-full ${isAlphaSender ? 'bg-cyanGlow' : 'bg-magentaGlow'}`}></span>
+                                <span>{m.from} ➔ {m.to}</span>
+                              </span>
+                              <span>{m.sentAt ? new Date(m.sentAt).toLocaleTimeString('ar-EG', { hour12: false }) : 'LIVE'}</span>
+                            </div>
+
+                            <p className="font-mono text-white text-xs break-all bg-black/40 p-2 rounded-lg" dir="ltr">
+                              {m.payload}
+                            </p>
+
+                            <div className="flex items-center justify-between text-[10px] pt-0.5">
+                              <span className="text-slate-500 truncate max-w-[160px]" title={m.id}>ID: {m.id}</span>
+                              <span className={`px-1.5 py-0.5 rounded font-bold ${
+                                m.status === 'DELIVERED' ? 'bg-emerald-500/20 text-emerald-400' :
+                                m.status === 'FAILED' ? 'bg-rose-500/20 text-rose-400' :
+                                'bg-slate-800 text-slate-400'
+                              }`}>
+                                {m.status === 'DELIVERED' ? 'DELIVERED ✅' : m.status}
+                                {m.rttMs ? ` (${m.rttMs}ms)` : ''}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+
+                <div className="text-[11px] text-slate-500 pt-2 border-t border-cyberBorder text-center font-sans">
+                  💡 إقرار التسليم (DELIVERY_ACK) صادر مباشرة من المودم المستقبل عبر بروتوكول BARQ-RELAY-v1.
+                </div>
+              </div>
+
+            </div>
+
+            {/* SECTION E: LIVE AUDIT & UART EVENT LOG */}
+            <div className="bg-cyberCard border border-cyberBorder rounded-2xl p-5 space-y-4">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-3 border-b border-cyberBorder">
+                <div className="flex items-center gap-2">
+                  <h3 className="font-cyber font-extrabold text-sm text-white">
+                    📜 سجل الأحداث والتدقيق اللحظي (Live Event & UART Audit)
+                  </h3>
+                  <span className="text-xs text-slate-400 font-mono">({filteredEvents.length} حدث)</span>
+                </div>
+
+                {/* Filter Tabs */}
+                <div className="flex flex-wrap gap-1.5 font-sans">
+                  {[
+                    { id: 'ALL', label: 'الكل' },
+                    { id: 'SERIAL', label: '🔌 أوامر Serial' },
+                    { id: 'GPRS/TCP', label: '🌐 سياق GPRS' },
+                    { id: 'RELAY', label: '📨 تمرير Relay' },
+                    { id: 'DELIVERY_ACK', label: '📬 إقرارات التسليم' },
+                    { id: 'ERROR', label: '⚠️ أخطاء' }
+                  ].map(tab => (
+                    <button
+                      key={tab.id}
+                      onClick={() => setActiveTab(tab.id)}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-bold transition ${
+                        activeTab === tab.id
+                          ? 'bg-cyanGlow text-black shadow-md shadow-cyanGlow/20'
+                          : 'bg-[#050814] text-slate-400 hover:text-white border border-cyberBorder'
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                  <button
+                    onClick={() => setEvents([])}
+                    className="px-2.5 py-1 rounded-lg text-xs font-bold bg-[#050814] hover:bg-slate-800 text-slate-400 border border-cyberBorder"
+                  >
+                    مسح السجل
+                  </button>
+                </div>
+              </div>
+
+              {/* Event Table */}
+              <div className="bg-[#02050e] border border-cyberBorder rounded-xl overflow-hidden max-h-80 overflow-y-auto">
+                <table className="w-full text-right text-xs font-mono">
+                  <thead className="bg-[#050917] text-slate-400 border-b border-cyberBorder text-[11px] sticky top-0">
+                    <tr>
+                      <th className="py-2.5 px-3">الوقت</th>
+                      <th className="py-2.5 px-3">النوع</th>
+                      <th className="py-2.5 px-3">العقدة</th>
+                      <th className="py-2.5 px-3">الحدث</th>
+                      <th className="py-2.5 px-3">التفاصيل</th>
+                      <th className="py-2.5 px-3 text-center">الحالة</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60">
+                    {filteredEvents.length === 0 ? (
+                      <tr>
+                        <td colSpan="6" className="py-8 text-center text-slate-500 font-sans">
+                          لا توجد أحداث مسجلة ضمن هذا التصنيف...
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredEvents.map(evt => {
+                        const typeBadge = {
+                          SERIAL: 'bg-blue-500/15 text-blue-400 border-blue-500/30',
+                          'GPRS/TCP': 'bg-cyan-500/15 text-cyanGlow border-cyan-500/30',
+                          RELAY: 'bg-purple-500/15 text-purple-300 border-purple-500/30',
+                          DELIVERY_ACK: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
+                          ERROR: 'bg-red-500/15 text-red-400 border-red-500/30',
+                          SYSTEM: 'bg-amber-500/15 text-amber-400 border-amber-500/30'
+                        }[evt.type] || 'bg-slate-800 text-slate-300 border-slate-700';
+
+                        return (
+                          <tr key={evt.id} className="hover:bg-white/[0.02] transition">
+                            <td className="py-2 px-3 text-slate-400 whitespace-nowrap">{evt.timestamp}</td>
+                            <td className="py-2 px-3 whitespace-nowrap">
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${typeBadge}`}>
+                                {evt.type}
+                              </span>
+                            </td>
+                            <td className="py-2 px-3 font-bold whitespace-nowrap">
+                              <span className={evt.node === 'ALPHA' ? 'text-cyanGlow' : (evt.node === 'BRAVO' ? 'text-magentaGlow' : 'text-slate-300')}>
+                                {evt.node}
+                              </span>
+                            </td>
+                            <td className="py-2 px-3 text-white font-sans font-semibold">{evt.title}</td>
+                            <td className="py-2 px-3 text-slate-300 max-w-md truncate" title={evt.detail} dir="ltr">{evt.detail}</td>
+                            <td className="py-2 px-3 text-center whitespace-nowrap">
+                              {evt.status === 'PASS' && <span className="text-emerald-400 font-bold">✅ PASS</span>}
+                              {evt.status === 'WARN' && <span className="text-amber-400 font-bold">⚠️ WARN</span>}
+                              {evt.status === 'FAIL' && <span className="text-red-400 font-bold">❌ FAIL</span>}
+                              {evt.status === 'INFO' && <span className="text-blue-400 font-bold">ℹ️ INFO</span>}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+          </main>
+
+          {/* FOOTER */}
+          <footer className="text-center text-xs text-slate-500 py-2 border-t border-cyberBorder/40">
+            BARQ LINK · Quectel M25 Dual Cellular Hardware Platform · Stage 5 Production Ready
+          </footer>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>

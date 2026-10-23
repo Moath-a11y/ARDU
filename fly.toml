@@ -1,0 +1,36 @@
+# ==============================================================
+# BARQ LINK · FLY.IO CLOUD DEPLOYMENT CONFIGURATION
+# Natively exposes TCP 5050 for Quectel M25 & HTTP 4000/5173 for Web
+# ==============================================================
+
+app = "barq-link-cloud"
+primary_region = "fra" # Frankfurt (low latency to Middle East)
+
+[build]
+  dockerfile = "Dockerfile"
+
+# 1. TCP Relay Server for Cellular Modems (Port 5050)
+[[services]]
+  protocol = "tcp"
+  internal_port = 5050
+
+  [[services.ports]]
+    port = 5050
+
+# 2. HTTP Web Dashboard & REST API
+[[services]]
+  protocol = "tcp"
+  internal_port = 4000
+
+  [[services.ports]]
+    handlers = ["http"]
+    port = 80
+
+  [[services.ports]]
+    handlers = ["tls", "http"]
+    port = 443
+
+  [services.concurrency]
+    type = "connections"
+    hard_limit = 250
+    soft_limit = 200

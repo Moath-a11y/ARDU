@@ -1,0 +1,14 @@
+{
+  "name": "barq-link-frontend",
+  "private": true,
+  "version": "1.0.0",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.cjs"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "@babel/standalone": "^7.24.0"
+  }
+}

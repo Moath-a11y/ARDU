@@ -1,0 +1,1296 @@
+{
+  "t0": 1792137867301,
+  "startedAt": "2026-10-16T08:04:27.301Z",
+  "steps": [
+    {
+      "id": "A_ENDPOINT",
+      "status": "PASS",
+      "tMs": 0,
+      "at": "2026-10-16T08:04:27.301Z",
+      "details": {
+        "note": "Using verified IPv4 141.94.45.153:45127 (hostname hhasp-188-161-70-194.run.pinggy-free.link)",
+        "endpoint": {
+          "hostname": "hhasp-188-161-70-194.run.pinggy-free.link",
+          "host": "141.94.45.153",
+          "port": 45127,
+          "url": "tcp://hhasp-188-161-70-194.run.pinggy-free.link:45127",
+          "verifiedAt": "2026-10-16T08:03:10.347Z",
+          "viaIpAck": {
+            "type": "REGISTER_ACK",
+            "deviceId": "PROBE-PC",
+            "serverTime": "2026-10-16T08:03:09.498Z"
+          }
+        }
+      }
+    },
+    {
+      "id": "B_OPEN_COM3",
+      "status": "START",
+      "tMs": 2,
+      "at": "2026-10-16T08:04:27.303Z",
+      "details": {
+        "port": "COM3",
+        "baud": 9600,
+        "framing": "8N1 (serialport default)"
+      }
+    },
+    {
+      "id": "B_OPEN_COM3",
+      "status": "PASS",
+      "tMs": 8,
+      "at": "2026-10-16T08:04:27.309Z",
+      "details": {
+        "openMs": 6,
+        "note": "COM3 opened; COM4 not opened"
+      }
+    },
+    {
+      "id": "B_AT",
+      "status": "PASS",
+      "tMs": 30,
+      "at": "2026-10-16T08:04:27.331Z",
+      "details": {
+        "cmd": "AT",
+        "timeoutMs": 3000,
+        "elapsedMs": 22,
+        "raw": "OK"
+      }
+    },
+    {
+      "id": "B_ATE0",
+      "status": "PASS",
+      "tMs": 58,
+      "at": "2026-10-16T08:04:27.359Z",
+      "details": {
+        "cmd": "ATE0",
+        "timeoutMs": 3000,
+        "elapsedMs": 28,
+        "raw": "OK"
+      }
+    },
+    {
+      "id": "B_CMEE",
+      "status": "PASS",
+      "tMs": 91,
+      "at": "2026-10-16T08:04:27.392Z",
+      "details": {
+        "cmd": "AT+CMEE=2",
+        "timeoutMs": 3000,
+        "elapsedMs": 33,
+        "raw": "OK"
+      }
+    },
+    {
+      "id": "B_ATI",
+      "status": "PASS",
+      "tMs": 169,
+      "at": "2026-10-16T08:04:27.470Z",
+      "details": {
+        "cmd": "ATI",
+        "timeoutMs": 3000,
+        "elapsedMs": 78,
+        "raw": "Quectel_Ltd\r\nQuectel_M25\r\nRevision: M25MAR01A12\r\nOK"
+      }
+    },
+    {
+      "id": "B_CGMR",
+      "status": "PASS",
+      "tMs": 222,
+      "at": "2026-10-16T08:04:27.523Z",
+      "details": {
+        "cmd": "AT+CGMR",
+        "timeoutMs": 3000,
+        "elapsedMs": 53,
+        "raw": "Revision: M25MAR01A12\r\nOK"
+      }
+    },
+    {
+      "id": "B_FIRMWARE",
+      "status": "PASS",
+      "tMs": 222,
+      "at": "2026-10-16T08:04:27.523Z",
+      "details": {
+        "ati": "Quectel_Ltd\r\nQuectel_M25\r\nRevision: M25MAR01A12\r\nOK",
+        "cgmr": "Revision: M25MAR01A12\r\nOK",
+        "note": "Expect Quectel M25 / M25MAR01A12"
+      }
+    },
+    {
+      "id": "B_CPIN",
+      "status": "PASS",
+      "tMs": 267,
+      "at": "2026-10-16T08:04:27.568Z",
+      "details": {
+        "cmd": "AT+CPIN?",
+        "timeoutMs": 4000,
+        "elapsedMs": 45,
+        "raw": "+CPIN: READY\r\nOK"
+      }
+    },
+    {
+      "id": "B_CSQ",
+      "status": "PASS",
+      "tMs": 312,
+      "at": "2026-10-16T08:04:27.613Z",
+      "details": {
+        "cmd": "AT+CSQ",
+        "timeoutMs": 3000,
+        "elapsedMs": 45,
+        "raw": "+CSQ: 25,0\r\nOK"
+      }
+    },
+    {
+      "id": "B_CREG",
+      "status": "PASS",
+      "tMs": 357,
+      "at": "2026-10-16T08:04:27.658Z",
+      "details": {
+        "cmd": "AT+CREG?",
+        "timeoutMs": 4000,
+        "elapsedMs": 45,
+        "raw": "+CREG: 1,1\r\nOK"
+      }
+    },
+    {
+      "id": "B_CGREG",
+      "status": "PASS",
+      "tMs": 402,
+      "at": "2026-10-16T08:04:27.703Z",
+      "details": {
+        "cmd": "AT+CGREG?",
+        "timeoutMs": 4000,
+        "elapsedMs": 45,
+        "raw": "+CGREG: 0,1\r\nOK"
+      }
+    },
+    {
+      "id": "B_GPRS_REG",
+      "status": "PASS",
+      "tMs": 403,
+      "at": "2026-10-16T08:04:27.704Z",
+      "details": {
+        "raw": "+CGREG: 0,1"
+      }
+    },
+    {
+      "id": "B_PRECHECK",
+      "status": "PASS",
+      "tMs": 403,
+      "at": "2026-10-16T08:04:27.704Z",
+      "details": {
+        "csq": "+CSQ: 25,0\r\nOK",
+        "creg": "+CREG: 1,1",
+        "cgreg": "+CGREG: 0,1"
+      }
+    },
+    {
+      "id": "B_CONNECT_START",
+      "status": "START",
+      "tMs": 403,
+      "at": "2026-10-16T08:04:27.704Z",
+      "details": {
+        "note": "configurePdp(APN=internet) → QINDI=1 → QIACT → QILOCIP → QIOPEN 141.94.45.153:45127 → REGISTER ALPHA"
+      }
+    },
+    {
+      "id": "B_QINDI",
+      "status": "INFO",
+      "tMs": 472,
+      "at": "2026-10-16T08:04:27.773Z",
+      "details": {
+        "action": "STEP_QINDI_CONFIG_START",
+        "details": {
+          "mode": 1
+        },
+        "note": "AT+QINDI=1 required by GprsRelayClient QIRD receive path (QINDI=0 would dump REGISTER_ACK onto UART)"
+      }
+    },
+    {
+      "id": "B_QINDI",
+      "status": "PASS",
+      "tMs": 505,
+      "at": "2026-10-16T08:04:27.806Z",
+      "details": {
+        "action": "STEP_QINDI_CONFIG_SUCCESS",
+        "details": {
+          "mode": 1
+        },
+        "note": "AT+QINDI=1 required by GprsRelayClient QIRD receive path (QINDI=0 would dump REGISTER_ACK onto UART)"
+      }
+    },
+    {
+      "id": "B_REGISTER_ACK",
+      "status": "PASS",
+      "tMs": 4555,
+      "at": "2026-10-16T08:04:31.856Z",
+      "details": {
+        "ack": {
+          "type": "REGISTER_ACK",
+          "deviceId": "ALPHA",
+          "serverTime": "2026-10-16T08:04:31.160Z"
+        },
+        "elapsedMs": 4152,
+        "assignedIp": "10.130.102.49",
+        "note": "Live REGISTER_ACK received; this is the success criterion"
+      }
+    },
+    {
+      "id": "C_CLEANUP",
+      "status": "START",
+      "tMs": 4556,
+      "at": "2026-10-16T08:04:31.857Z",
+      "details": {
+        "tcpOpened": true,
+        "pdpActivated": true
+      }
+    },
+    {
+      "id": "C_CLIENT_DISCONNECT",
+      "status": "PASS",
+      "tMs": 6927,
+      "at": "2026-10-16T08:04:34.228Z",
+      "details": {
+        "note": "AT+QICLOSE then AT+QIDEACT via GprsRelayClient.disconnect()"
+      }
+    },
+    {
+      "id": "C_CLOSE_COM3",
+      "status": "PASS",
+      "tMs": 6928,
+      "at": "2026-10-16T08:04:34.229Z",
+      "details": {
+        "isOpen": false
+      }
+    }
+  ],
+  "uart": [
+    {
+      "at": "2026-10-16T08:04:27.309Z",
+      "tMs": 8,
+      "dir": "TX",
+      "data": "AT"
+    },
+    {
+      "at": "2026-10-16T08:04:27.327Z",
+      "tMs": 26,
+      "dir": "RX",
+      "data": "\r\n"
+    },
+    {
+      "at": "2026-10-16T08:04:27.330Z",
+      "tMs": 29,
+      "dir": "RX",
+      "data": "OK\r\n"
+    },
+    {
+      "at": "2026-10-16T08:04:27.331Z",
+      "tMs": 30,
+      "dir": "TX",
+      "data": "ATE0"
+    },
+    {
+      "at": "2026-10-16T08:04:27.351Z",
+      "tMs": 50,
+      "dir": "RX",
+      "data": "\r"
+    },
+    {
+      "at": "2026-10-16T08:04:27.356Z",
+      "tMs": 55,
+      "dir": "RX",
+      "data": "\nOK\r"
+    },
+    {
+      "at": "2026-10-16T08:04:27.359Z",
+      "tMs": 58,
+      "dir": "RX",
+      "data": "\n"
+    },
+    {
+      "at": "2026-10-16T08:04:27.359Z",
+      "tMs": 58,
+      "dir": "TX",
+      "data": "AT+CMEE=2"
+    },
+    {
+      "at": "2026-10-16T08:04:27.384Z",
+      "tMs": 83,
+      "dir": "RX",
+      "data": "\r"
+    },
+    {
+      "at": "2026-10-16T08:04:27.388Z",
+      "tMs": 87,
+      "dir": "RX",
+      "data": "\nOK\r"
+    },
+    {
+      "at": "2026-10-16T08:04:27.392Z",
+      "tMs": 91,
+      "dir": "RX",
+      "data": "\n"
+    },
+    {
+      "at": "2026-10-16T08:04:27.392Z",
+      "tMs": 91,
+      "dir": "TX",
+      "data": "ATI"
+    },
+    {
+      "at": "2026-10-16T08:04:27.412Z",
+      "tMs": 111,
+      "dir": "RX",
+      "data": "\r\nQu"
+    },
+    {
+      "at": "2026-10-16T08:04:27.416Z",
+      "tMs": 115,
+      "dir": "RX",
+      "data": "ecte"
+    },
+    {
+      "at": "2026-10-16T08:04:27.421Z",
+      "tMs": 120,
+      "dir": "RX",
+      "data": "l_Lt"
+    },
+    {
+      "at": "2026-10-16T08:04:27.425Z",
+      "tMs": 124,
+      "dir": "RX",
+      "data": "d\r\nQ"
+    },
+    {
+      "at": "2026-10-16T08:04:27.429Z",
+      "tMs": 128,
+      "dir": "RX",
+      "data": "uect"
+    },
+    {
+      "at": "2026-10-16T08:04:27.433Z",
+      "tMs": 132,
+      "dir": "RX",
+      "data": "el_M"
+    },
+    {
+      "at": "2026-10-16T08:04:27.437Z",
+      "tMs": 136,
+      "dir": "RX",
+      "data": "25\r\n"
+    },
+    {
+      "at": "2026-10-16T08:04:27.441Z",
+      "tMs": 140,
+      "dir": "RX",
+      "data": "Revi"
+    },
+    {
+      "at": "2026-10-16T08:04:27.445Z",
+      "tMs": 144,
+      "dir": "RX",
+      "data": "sion"
+    },
+    {
+      "at": "2026-10-16T08:04:27.449Z",
+      "tMs": 148,
+      "dir": "RX",
+      "data": ": M2"
+    },
+    {
+      "at": "2026-10-16T08:04:27.454Z",
+      "tMs": 153,
+      "dir": "RX",
+      "data": "5MAR"
+    },
+    {
+      "at": "2026-10-16T08:04:27.457Z",
+      "tMs": 156,
+      "dir": "RX",
+      "data": "01A1"
+    },
+    {
+      "at": "2026-10-16T08:04:27.461Z",
+      "tMs": 160,
+      "dir": "RX",
+      "data": "2\r\n\r"
+    },
+    {
+      "at": "2026-10-16T08:04:27.465Z",
+      "tMs": 164,
+      "dir": "RX",
+      "data": "\nOK"
+    },
+    {
+      "at": "2026-10-16T08:04:27.470Z",
+      "tMs": 169,
+      "dir": "RX",
+      "data": "\r\n"
+    },
+    {
+      "at": "2026-10-16T08:04:27.470Z",
+      "tMs": 169,
+      "dir": "TX",
+      "data": "AT+CGMR"
+    },
+    {
+      "at": "2026-10-16T08:04:27.490Z",
+      "tMs": 189,
+      "dir": "RX",
+      "data": "\r"
+    },
+    {
+      "at": "2026-10-16T08:04:27.494Z",
+      "tMs": 193,
+      "dir": "RX",
+      "data": "\nRe"
+    },
+    {
+      "at": "2026-10-16T08:04:27.498Z",
+      "tMs": 197,
+      "dir": "RX",
+      "data": "visi"
+    },
+    {
+      "at": "2026-10-16T08:04:27.502Z",
+      "tMs": 201,
+      "dir": "RX",
+      "data": "on: "
+    },
+    {
+      "at": "2026-10-16T08:04:27.506Z",
+      "tMs": 205,
+      "dir": "RX",
+      "data": "M25M"
+    },
+    {
+      "at": "2026-10-16T08:04:27.511Z",
+      "tMs": 210,
+      "dir": "RX",
+      "data": "AR01"
+    },
+    {
+      "at": "2026-10-16T08:04:27.515Z",
+      "tMs": 214,
+      "dir": "RX",
+      "data": "A12\r"
+    },
+    {
+      "at": "2026-10-16T08:04:27.519Z",
+      "tMs": 218,
+      "dir": "RX",
+      "data": "\n\r\nO"
+    },
+    {
+      "at": "2026-10-16T08:04:27.523Z",
+      "tMs": 222,
+      "dir": "RX",
+      "data": "K\r\n"
+    },
+    {
+      "at": "2026-10-16T08:04:27.523Z",
+      "tMs": 222,
+      "dir": "TX",
+      "data": "AT+CPIN?"
+    },
+    {
+      "at": "2026-10-16T08:04:27.547Z",
+      "tMs": 246,
+      "dir": "RX",
+      "data": "\r\n"
+    },
+    {
+      "at": "2026-10-16T08:04:27.551Z",
+      "tMs": 250,
+      "dir": "RX",
+      "data": "+CPI"
+    },
+    {
+      "at": "2026-10-16T08:04:27.556Z",
+      "tMs": 255,
+      "dir": "RX",
+      "data": "N: R"
+    },
+    {
+      "at": "2026-10-16T08:04:27.562Z",
+      "tMs": 261,
+      "dir": "RX",
+      "data": "EADY"
+    },
+    {
+      "at": "2026-10-16T08:04:27.564Z",
+      "tMs": 263,
+      "dir": "RX",
+      "data": "\r\n\r\n"
+    },
+    {
+      "at": "2026-10-16T08:04:27.568Z",
+      "tMs": 267,
+      "dir": "RX",
+      "data": "OK\r\n"
+    },
+    {
+      "at": "2026-10-16T08:04:27.569Z",
+      "tMs": 268,
+      "dir": "TX",
+      "data": "AT+CSQ"
+    },
+    {
+      "at": "2026-10-16T08:04:27.592Z",
+      "tMs": 291,
+      "dir": "RX",
+      "data": "\r\n+C"
+    },
+    {
+      "at": "2026-10-16T08:04:27.597Z",
+      "tMs": 296,
+      "dir": "RX",
+      "data": "SQ:"
+    },
+    {
+      "at": "2026-10-16T08:04:27.601Z",
+      "tMs": 300,
+      "dir": "RX",
+      "data": " 25,"
+    },
+    {
+      "at": "2026-10-16T08:04:27.605Z",
+      "tMs": 304,
+      "dir": "RX",
+      "data": "0\r\n\r"
+    },
+    {
+      "at": "2026-10-16T08:04:27.609Z",
+      "tMs": 308,
+      "dir": "RX",
+      "data": "\nOK\r"
+    },
+    {
+      "at": "2026-10-16T08:04:27.613Z",
+      "tMs": 312,
+      "dir": "RX",
+      "data": "\n"
+    },
+    {
+      "at": "2026-10-16T08:04:27.613Z",
+      "tMs": 312,
+      "dir": "TX",
+      "data": "AT+CREG?"
+    },
+    {
+      "at": "2026-10-16T08:04:27.638Z",
+      "tMs": 337,
+      "dir": "RX",
+      "data": "\r\n"
+    },
+    {
+      "at": "2026-10-16T08:04:27.642Z",
+      "tMs": 341,
+      "dir": "RX",
+      "data": "+CRE"
+    },
+    {
+      "at": "2026-10-16T08:04:27.646Z",
+      "tMs": 345,
+      "dir": "RX",
+      "data": "G: 1"
+    },
+    {
+      "at": "2026-10-16T08:04:27.650Z",
+      "tMs": 349,
+      "dir": "RX",
+      "data": ",1\r\n"
+    },
+    {
+      "at": "2026-10-16T08:04:27.654Z",
+      "tMs": 353,
+      "dir": "RX",
+      "data": "\r\nOK"
+    },
+    {
+      "at": "2026-10-16T08:04:27.658Z",
+      "tMs": 357,
+      "dir": "RX",
+      "data": "\r\n"
+    },
+    {
+      "at": "2026-10-16T08:04:27.658Z",
+      "tMs": 357,
+      "dir": "TX",
+      "data": "AT+CGREG?"
+    },
+    {
+      "at": "2026-10-16T08:04:27.683Z",
+      "tMs": 382,
+      "dir": "RX",
+      "data": "\r"
+    },
+    {
+      "at": "2026-10-16T08:04:27.687Z",
+      "tMs": 386,
+      "dir": "RX",
+      "data": "\n+CG"
+    },
+    {
+      "at": "2026-10-16T08:04:27.691Z",
+      "tMs": 390,
+      "dir": "RX",
+      "data": "REG:"
+    },
+    {
+      "at": "2026-10-16T08:04:27.695Z",
+      "tMs": 394,
+      "dir": "RX",
+      "data": " 0,1"
+    },
+    {
+      "at": "2026-10-16T08:04:27.699Z",
+      "tMs": 398,
+      "dir": "RX",
+      "data": "\r\n\r\n"
+    },
+    {
+      "at": "2026-10-16T08:04:27.703Z",
+      "tMs": 402,
+      "dir": "RX",
+      "data": "OK\r\n"
+    },
+    {
+      "at": "2026-10-16T08:04:27.705Z",
+      "tMs": 404,
+      "dir": "TX",
+      "data": "AT+QIDEACT"
+    },
+    {
+      "at": "2026-10-16T08:04:27.732Z",
+      "tMs": 431,
+      "dir": "RX",
+      "data": "\r\nDE"
+    },
+    {
+      "at": "2026-10-16T08:04:27.736Z",
+      "tMs": 435,
+      "dir": "RX",
+      "data": "ACT "
+    },
+    {
+      "at": "2026-10-16T08:04:27.740Z",
+      "tMs": 439,
+      "dir": "RX",
+      "data": "OK\r\n"
+    },
+    {
+      "at": "2026-10-16T08:04:27.740Z",
+      "tMs": 439,
+      "dir": "TX",
+      "data": "AT+QIFGCNT=0"
+    },
+    {
+      "at": "2026-10-16T08:04:27.769Z",
+      "tMs": 468,
+      "dir": "RX",
+      "data": "\r\nO"
+    },
+    {
+      "at": "2026-10-16T08:04:27.773Z",
+      "tMs": 472,
+      "dir": "RX",
+      "data": "K\r\n"
+    },
+    {
+      "at": "2026-10-16T08:04:27.773Z",
+      "tMs": 472,
+      "dir": "TX",
+      "data": "AT+QINDI=1"
+    },
+    {
+      "at": "2026-10-16T08:04:27.797Z",
+      "tMs": 496,
+      "dir": "RX",
+      "data": "\r"
+    },
+    {
+      "at": "2026-10-16T08:04:27.801Z",
+      "tMs": 500,
+      "dir": "RX",
+      "data": "\nOK\r"
+    },
+    {
+      "at": "2026-10-16T08:04:27.805Z",
+      "tMs": 504,
+      "dir": "RX",
+      "data": "\n"
+    },
+    {
+      "at": "2026-10-16T08:04:27.806Z",
+      "tMs": 505,
+      "dir": "TX",
+      "data": "AT+QICSGP=1,\"internet\""
+    },
+    {
+      "at": "2026-10-16T08:04:27.855Z",
+      "tMs": 554,
+      "dir": "RX",
+      "data": "\r\nO"
+    },
+    {
+      "at": "2026-10-16T08:04:27.859Z",
+      "tMs": 558,
+      "dir": "RX",
+      "data": "K\r\n"
+    },
+    {
+      "at": "2026-10-16T08:04:27.859Z",
+      "tMs": 558,
+      "dir": "TX",
+      "data": "AT+CGATT?"
+    },
+    {
+      "at": "2026-10-16T08:04:27.883Z",
+      "tMs": 582,
+      "dir": "RX",
+      "data": "\r"
+    },
+    {
+      "at": "2026-10-16T08:04:27.887Z",
+      "tMs": 586,
+      "dir": "RX",
+      "data": "\n+CG"
+    },
+    {
+      "at": "2026-10-16T08:04:27.891Z",
+      "tMs": 590,
+      "dir": "RX",
+      "data": "ATT:"
+    },
+    {
+      "at": "2026-10-16T08:04:27.896Z",
+      "tMs": 595,
+      "dir": "RX",
+      "data": " 1\r\n"
+    },
+    {
+      "at": "2026-10-16T08:04:27.900Z",
+      "tMs": 599,
+      "dir": "RX",
+      "data": "\r\nOK"
+    },
+    {
+      "at": "2026-10-16T08:04:27.904Z",
+      "tMs": 603,
+      "dir": "RX",
+      "data": "\r\n"
+    },
+    {
+      "at": "2026-10-16T08:04:27.904Z",
+      "tMs": 603,
+      "dir": "TX",
+      "data": "AT+QIREGAPP"
+    },
+    {
+      "at": "2026-10-16T08:04:27.932Z",
+      "tMs": 631,
+      "dir": "RX",
+      "data": "\r\nOK"
+    },
+    {
+      "at": "2026-10-16T08:04:27.936Z",
+      "tMs": 635,
+      "dir": "RX",
+      "data": "\r\n"
+    },
+    {
+      "at": "2026-10-16T08:04:27.937Z",
+      "tMs": 636,
+      "dir": "TX",
+      "data": "AT+QIACT"
+    },
+    {
+      "at": "2026-10-16T08:04:28.997Z",
+      "tMs": 1696,
+      "dir": "RX",
+      "data": "\r"
+    },
+    {
+      "at": "2026-10-16T08:04:29.001Z",
+      "tMs": 1700,
+      "dir": "RX",
+      "data": "\nOK\r"
+    },
+    {
+      "at": "2026-10-16T08:04:29.006Z",
+      "tMs": 1705,
+      "dir": "RX",
+      "data": "\n"
+    },
+    {
+      "at": "2026-10-16T08:04:29.006Z",
+      "tMs": 1705,
+      "dir": "TX",
+      "data": "AT+QILOCIP"
+    },
+    {
+      "at": "2026-10-16T08:04:29.030Z",
+      "tMs": 1729,
+      "dir": "RX",
+      "data": "\r"
+    },
+    {
+      "at": "2026-10-16T08:04:29.034Z",
+      "tMs": 1733,
+      "dir": "RX",
+      "data": "\n10."
+    },
+    {
+      "at": "2026-10-16T08:04:29.039Z",
+      "tMs": 1738,
+      "dir": "RX",
+      "data": "130."
+    },
+    {
+      "at": "2026-10-16T08:04:29.042Z",
+      "tMs": 1741,
+      "dir": "RX",
+      "data": "102."
+    },
+    {
+      "at": "2026-10-16T08:04:29.046Z",
+      "tMs": 1745,
+      "dir": "RX",
+      "data": "49\r\n"
+    },
+    {
+      "at": "2026-10-16T08:04:29.047Z",
+      "tMs": 1746,
+      "dir": "TX",
+      "data": "AT+QICLOSE"
+    },
+    {
+      "at": "2026-10-16T08:04:29.071Z",
+      "tMs": 1770,
+      "dir": "RX",
+      "data": "\r\nE"
+    },
+    {
+      "at": "2026-10-16T08:04:29.075Z",
+      "tMs": 1774,
+      "dir": "RX",
+      "data": "RROR"
+    },
+    {
+      "at": "2026-10-16T08:04:29.079Z",
+      "tMs": 1778,
+      "dir": "RX",
+      "data": "\r\n"
+    },
+    {
+      "at": "2026-10-16T08:04:29.079Z",
+      "tMs": 1778,
+      "dir": "TX",
+      "data": "AT+QIOPEN=\"TCP\",\"141.94.45.153\",45127"
+    },
+    {
+      "at": "2026-10-16T08:04:29.141Z",
+      "tMs": 1840,
+      "dir": "RX",
+      "data": "\r\nOK"
+    },
+    {
+      "at": "2026-10-16T08:04:29.145Z",
+      "tMs": 1844,
+      "dir": "RX",
+      "data": "\r\n"
+    },
+    {
+      "at": "2026-10-16T08:04:29.841Z",
+      "tMs": 2540,
+      "dir": "RX",
+      "data": "\r\nC"
+    },
+    {
+      "at": "2026-10-16T08:04:29.845Z",
+      "tMs": 2544,
+      "dir": "RX",
+      "data": "ONNE"
+    },
+    {
+      "at": "2026-10-16T08:04:29.849Z",
+      "tMs": 2548,
+      "dir": "RX",
+      "data": "CT O"
+    },
+    {
+      "at": "2026-10-16T08:04:29.853Z",
+      "tMs": 2552,
+      "dir": "RX",
+      "data": "K\r\n"
+    },
+    {
+      "at": "2026-10-16T08:04:29.854Z",
+      "tMs": 2553,
+      "dir": "TX",
+      "data": "AT+QISEND=66"
+    },
+    {
+      "at": "2026-10-16T08:04:29.882Z",
+      "tMs": 2581,
+      "dir": "RX",
+      "data": "\r\n>"
+    },
+    {
+      "at": "2026-10-16T08:04:29.889Z",
+      "tMs": 2588,
+      "dir": "RX",
+      "data": " "
+    },
+    {
+      "at": "2026-10-16T08:04:29.964Z",
+      "tMs": 2663,
+      "dir": "RX",
+      "data": "\r\nSE"
+    },
+    {
+      "at": "2026-10-16T08:04:29.968Z",
+      "tMs": 2667,
+      "dir": "RX",
+      "data": "ND O"
+    },
+    {
+      "at": "2026-10-16T08:04:29.973Z",
+      "tMs": 2672,
+      "dir": "RX",
+      "data": "K\r\n"
+    },
+    {
+      "at": "2026-10-16T08:04:31.676Z",
+      "tMs": 4375,
+      "dir": "RX",
+      "data": "\r\n"
+    },
+    {
+      "at": "2026-10-16T08:04:31.680Z",
+      "tMs": 4379,
+      "dir": "RX",
+      "data": "+QIR"
+    },
+    {
+      "at": "2026-10-16T08:04:31.685Z",
+      "tMs": 4384,
+      "dir": "RX",
+      "data": "DI: "
+    },
+    {
+      "at": "2026-10-16T08:04:31.688Z",
+      "tMs": 4387,
+      "dir": "RX",
+      "data": "0,1,"
+    },
+    {
+      "at": "2026-10-16T08:04:31.692Z",
+      "tMs": 4391,
+      "dir": "RX",
+      "data": "0\r\n"
+    },
+    {
+      "at": "2026-10-16T08:04:31.693Z",
+      "tMs": 4392,
+      "dir": "TX",
+      "data": "AT+QIRD=0,1,0,512"
+    },
+    {
+      "at": "2026-10-16T08:04:31.725Z",
+      "tMs": 4424,
+      "dir": "RX",
+      "data": "\r"
+    },
+    {
+      "at": "2026-10-16T08:04:31.729Z",
+      "tMs": 4428,
+      "dir": "RX",
+      "data": "\n+QI"
+    },
+    {
+      "at": "2026-10-16T08:04:31.734Z",
+      "tMs": 4433,
+      "dir": "RX",
+      "data": "RD: "
+    },
+    {
+      "at": "2026-10-16T08:04:31.737Z",
+      "tMs": 4436,
+      "dir": "RX",
+      "data": "141."
+    },
+    {
+      "at": "2026-10-16T08:04:31.741Z",
+      "tMs": 4440,
+      "dir": "RX",
+      "data": "94.4"
+    },
+    {
+      "at": "2026-10-16T08:04:31.745Z",
+      "tMs": 4444,
+      "dir": "RX",
+      "data": "5.15"
+    },
+    {
+      "at": "2026-10-16T08:04:31.749Z",
+      "tMs": 4448,
+      "dir": "RX",
+      "data": "3:45"
+    },
+    {
+      "at": "2026-10-16T08:04:31.754Z",
+      "tMs": 4453,
+      "dir": "RX",
+      "data": "127,"
+    },
+    {
+      "at": "2026-10-16T08:04:31.758Z",
+      "tMs": 4457,
+      "dir": "RX",
+      "data": "TCP"
+    },
+    {
+      "at": "2026-10-16T08:04:31.762Z",
+      "tMs": 4461,
+      "dir": "RX",
+      "data": ",84\r"
+    },
+    {
+      "at": "2026-10-16T08:04:31.766Z",
+      "tMs": 4465,
+      "dir": "RX",
+      "data": "\n{\"t"
+    },
+    {
+      "at": "2026-10-16T08:04:31.770Z",
+      "tMs": 4469,
+      "dir": "RX",
+      "data": "ype\""
+    },
+    {
+      "at": "2026-10-16T08:04:31.774Z",
+      "tMs": 4473,
+      "dir": "RX",
+      "data": ":\"RE"
+    },
+    {
+      "at": "2026-10-16T08:04:31.778Z",
+      "tMs": 4477,
+      "dir": "RX",
+      "data": "GIST"
+    },
+    {
+      "at": "2026-10-16T08:04:31.782Z",
+      "tMs": 4481,
+      "dir": "RX",
+      "data": "ER_A"
+    },
+    {
+      "at": "2026-10-16T08:04:31.786Z",
+      "tMs": 4485,
+      "dir": "RX",
+      "data": "CK\","
+    },
+    {
+      "at": "2026-10-16T08:04:31.791Z",
+      "tMs": 4490,
+      "dir": "RX",
+      "data": "\"dev"
+    },
+    {
+      "at": "2026-10-16T08:04:31.795Z",
+      "tMs": 4494,
+      "dir": "RX",
+      "data": "iceI"
+    },
+    {
+      "at": "2026-10-16T08:04:31.799Z",
+      "tMs": 4498,
+      "dir": "RX",
+      "data": "d\":\""
+    },
+    {
+      "at": "2026-10-16T08:04:31.803Z",
+      "tMs": 4502,
+      "dir": "RX",
+      "data": "ALPH"
+    },
+    {
+      "at": "2026-10-16T08:04:31.807Z",
+      "tMs": 4506,
+      "dir": "RX",
+      "data": "A\",\""
+    },
+    {
+      "at": "2026-10-16T08:04:31.811Z",
+      "tMs": 4510,
+      "dir": "RX",
+      "data": "serv"
+    },
+    {
+      "at": "2026-10-16T08:04:31.815Z",
+      "tMs": 4514,
+      "dir": "RX",
+      "data": "erTi"
+    },
+    {
+      "at": "2026-10-16T08:04:31.819Z",
+      "tMs": 4518,
+      "dir": "RX",
+      "data": "me\""
+    },
+    {
+      "at": "2026-10-16T08:04:31.823Z",
+      "tMs": 4522,
+      "dir": "RX",
+      "data": ":\"20"
+    },
+    {
+      "at": "2026-10-16T08:04:31.827Z",
+      "tMs": 4526,
+      "dir": "RX",
+      "data": "26-1"
+    },
+    {
+      "at": "2026-10-16T08:04:31.831Z",
+      "tMs": 4530,
+      "dir": "RX",
+      "data": "0-16"
+    },
+    {
+      "at": "2026-10-16T08:04:31.835Z",
+      "tMs": 4534,
+      "dir": "RX",
+      "data": "T08:"
+    },
+    {
+      "at": "2026-10-16T08:04:31.840Z",
+      "tMs": 4539,
+      "dir": "RX",
+      "data": "04:3"
+    },
+    {
+      "at": "2026-10-16T08:04:31.844Z",
+      "tMs": 4543,
+      "dir": "RX",
+      "data": "1.16"
+    },
+    {
+      "at": "2026-10-16T08:04:31.848Z",
+      "tMs": 4547,
+      "dir": "RX",
+      "data": "0Z\"}"
+    },
+    {
+      "at": "2026-10-16T08:04:31.852Z",
+      "tMs": 4551,
+      "dir": "RX",
+      "data": "\r\n\r\n"
+    },
+    {
+      "at": "2026-10-16T08:04:31.856Z",
+      "tMs": 4555,
+      "dir": "RX",
+      "data": "OK\r\n"
+    },
+    {
+      "at": "2026-10-16T08:04:31.857Z",
+      "tMs": 4556,
+      "dir": "TX",
+      "data": "AT+QICLOSE"
+    },
+    {
+      "at": "2026-10-16T08:04:31.885Z",
+      "tMs": 4584,
+      "dir": "RX",
+      "data": "\r"
+    },
+    {
+      "at": "2026-10-16T08:04:31.889Z",
+      "tMs": 4588,
+      "dir": "RX",
+      "data": "\nCLO"
+    },
+    {
+      "at": "2026-10-16T08:04:31.893Z",
+      "tMs": 4592,
+      "dir": "RX",
+      "data": "SE O"
+    },
+    {
+      "at": "2026-10-16T08:04:31.897Z",
+      "tMs": 4596,
+      "dir": "RX",
+      "data": "K\r\n"
+    },
+    {
+      "at": "2026-10-16T08:04:31.897Z",
+      "tMs": 4596,
+      "dir": "TX",
+      "data": "AT+QIDEACT"
+    },
+    {
+      "at": "2026-10-16T08:04:34.215Z",
+      "tMs": 6914,
+      "dir": "RX",
+      "data": "\r\nD"
+    },
+    {
+      "at": "2026-10-16T08:04:34.219Z",
+      "tMs": 6918,
+      "dir": "RX",
+      "data": "EACT"
+    },
+    {
+      "at": "2026-10-16T08:04:34.223Z",
+      "tMs": 6922,
+      "dir": "RX",
+      "data": " OK\r"
+    },
+    {
+      "at": "2026-10-16T08:04:34.227Z",
+      "tMs": 6926,
+      "dir": "RX",
+      "data": "\n"
+    }
+  ],
+  "clientEvents": [
+    {
+      "at": "2026-10-16T08:04:31.856Z",
+      "ev": "register_ack",
+      "p": {
+        "type": "REGISTER_ACK",
+        "deviceId": "ALPHA",
+        "serverTime": "2026-10-16T08:04:31.160Z"
+      }
+    },
+    {
+      "at": "2026-10-16T08:04:31.856Z",
+      "ev": "registered",
+      "p": {
+        "deviceId": "ALPHA",
+        "serverTime": "2026-10-16T08:04:31.160Z"
+      }
+    },
+    {
+      "at": "2026-10-16T08:04:34.228Z",
+      "ev": "disconnected"
+    }
+  ],
+  "outcome": {
+    "success": true,
+    "reason": "REGISTER_ACK_VERIFIED",
+    "extra": {
+      "ack": {
+        "type": "REGISTER_ACK",
+        "deviceId": "ALPHA",
+        "serverTime": "2026-10-16T08:04:31.160Z"
+      },
+      "assignedIp": "10.130.102.49",
+      "relay": "141.94.45.153:45127"
+    },
+    "finishedAt": "2026-10-16T08:04:31.856Z",
+    "durationMs": 4556
+  }
+}
