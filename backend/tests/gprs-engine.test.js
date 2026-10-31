@@ -41,6 +41,8 @@ async function runStage3MockTests() {
     const session = new NodeSession('ALPHA', 'COM_MOCK', mock);
     session._setState(STATES.PACKET_ATTACHED);
 
+    mock.setScriptedResponse('AT', '\r\nOK\r\n', 5);
+    mock.setScriptedResponse('AT+QICLOSE', '\r\nCLOSE OK\r\n', 5);
     mock.setScriptedResponse('AT+QIDEACT', '\r\nDEACT OK\r\n', 5);
     mock.setScriptedResponse('AT+QIFGCNT=0', '\r\nOK\r\n', 5);
     mock.setScriptedResponse('AT+QINDI=1', '\r\nOK\r\n', 5);
@@ -60,6 +62,8 @@ async function runStage3MockTests() {
     const session = new NodeSession('ALPHA', 'COM_MOCK', mock);
     session._setState(STATES.PACKET_ATTACHED);
 
+    mock.setScriptedResponse('AT', '\r\nOK\r\n', 5);
+    mock.setScriptedResponse('AT+QICLOSE', '\r\nCLOSE OK\r\n', 5);
     mock.setScriptedResponse('AT+QIDEACT', '\r\nDEACT OK\r\n', 5);
     mock.setScriptedResponse('AT+QIFGCNT=0', '\r\nOK\r\n', 5);
     mock.setScriptedResponse('AT+QINDI=1', '\r\nERROR\r\n', 5);

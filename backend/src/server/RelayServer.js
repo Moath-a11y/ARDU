@@ -14,6 +14,7 @@
 
 const net = require('net');
 const { EventEmitter } = require('events');
+const { isProcessCommand, validateProcessCommand } = require('../protocol/ProcessCommands');
 
 const MAX_MSG_BYTES     = 2048;
 const DELIVERY_TIMEOUT_MS = 30000;
@@ -42,6 +43,7 @@ class RelayServer extends EventEmitter {
     // Legacy challenge audit log (backward-compat)
     this.receivedChallenges = [];
     this.activeSockets      = new Set();
+    this._sessionMeta       = new Map(); // deviceId -> { registeredAt, lastSeen, lastHb, remoteInfo, csq, voltage }
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -103,6 +105,7 @@ class RelayServer extends EventEmitter {
       this.activeSockets.delete(socket);
       if (deviceId && this._sessions.get(deviceId) === socket) {
         this._sessions.delete(deviceId);
+        this._sessionMeta.delete(deviceId);
         this.emit('device_offline', { deviceId });
         console.log(`[RELAY] ${deviceId} disconnected — session removed`);
 
@@ -243,6 +246,7 @@ class RelayServer extends EventEmitter {
           old.destroy();
         }
         this._sessions.set(dId, socket);
+        this._touchSession(dId, { remoteInfo, registeredAt: new Date().toISOString() });
         onRegister(dId);
         console.log(`[RELAY] REGISTERED: ${dId} from ${remoteInfo}`);
         this.emit('device_registered', { deviceId: dId, remoteInfo });
@@ -261,6 +265,14 @@ class RelayServer extends EventEmitter {
           return this._send(socket, { type: 'ERROR', code: 'MALFORMED', msgId: msgId ?? null,
             message: 'RELAY requires msgId, to, payload' });
         }
+        if (isProcessCommand(payload)) {
+          const v = validateProcessCommand(payload);
+          if (!v.ok) {
+            return this._send(socket, { type: 'ERROR', code: v.code, msgId,
+              message: `Process command rejected: ${v.code}` });
+          }
+        }
+        this._touchSession(currentDeviceId);
         const destSocket = this._sessions.get(to);
         if (!destSocket || destSocket.destroyed) {
           return this._send(socket, { type: 'ERROR', code: 'DESTINATION_OFFLINE', msgId,
@@ -289,8 +301,14 @@ class RelayServer extends EventEmitter {
       }
 
       // ── PING / HEARTBEAT ──────────────────────────────────
-      case 'PING': {
+      case 'PING':
+      case 'HEARTBEAT': {
         const currentDeviceId = dId || [...this._sessions.entries()].find(([, s]) => s === socket)?.[0] || 'UNKNOWN';
+        this._touchSession(currentDeviceId, {
+          lastHb: new Date().toISOString(),
+          csq: msg.csq,
+          voltage: msg.voltage
+        });
         this._send(socket, { type: 'PONG', deviceId: currentDeviceId, serverTime: new Date().toISOString() });
         break;
       }
@@ -381,6 +399,43 @@ class RelayServer extends EventEmitter {
   // ─────────────────────────────────────────────────────────────
   //  Utility
   // ─────────────────────────────────────────────────────────────
+
+  _touchSession(deviceId, extra = {}) {
+    if (!deviceId || deviceId === 'UNKNOWN') return;
+    const prev = this._sessionMeta.get(deviceId) || {};
+    this._sessionMeta.set(deviceId, {
+      ...prev,
+      ...extra,
+      lastSeen: new Date().toISOString(),
+      online: true
+    });
+  }
+
+  getOperationalSnapshot() {
+    const sessions = {};
+    for (const [id, sock] of this._sessions.entries()) {
+      const meta = this._sessionMeta.get(id) || {};
+      sessions[id] = {
+        remote: `${sock.remoteAddress}:${sock.remotePort}`,
+        online: !sock.destroyed,
+        ...meta
+      };
+    }
+    return {
+      protocol: PROTOCOL_VERSION,
+      port: this.port,
+      isRunning: this.isRunning,
+      sessions,
+      pendingRelays: this._pending.size
+    };
+  }
+
+  /**
+   * HMI / FieldCommandService entry: inject RELAY to a registered RTU and wait for DELIVERY_ACK.
+   */
+  injectRelay(fromId, toId, payload, opts = {}) {
+    return this.sendRelayFromWeb(fromId, toId, payload, opts.timeoutMs || 25000);
+  }
 
   _send(socket, obj) {
     if (!socket || socket.destroyed || socket.writableEnded) return;

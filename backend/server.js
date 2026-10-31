@@ -1,587 +1,312 @@
 /**
- * BARQ LINK · IOT ENTERPRISE BACKEND
- * Integrated Real Hardware Controller (COM3 & COM4) + Relay Server (TCP 5050) + REST API (4000) + WebSocket Gateway (4001)
- * 100% Real Hardware Driven · Zero Simulation / Zero Mock in Operational Path
+ * BARQ LINK — سيرفر بسيط
+ * TCP 5050: الأردوينو يتصل عبر شريحة AT
+ * HTTP 4000: واجهة أزرار الضوء
+ * لا يوجد USB / COM / محاكاة عتاد في مسار التشغيل.
  */
-
 'use strict';
 
 const http = require('http');
-const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
-const HardwareController = require('./src/hardware/HardwareController');
+const net = require('net');
 const RelayServer = require('./src/server/RelayServer');
-const TunnelManager = require('./src/server/TunnelManager');
-const { STATES } = require('./src/hardware/NodeSession');
-
-// Global Process Error Handlers to prevent hardware/serial disconnects from crashing server
-process.on('unhandledRejection', (reason) => {
-  console.warn('⚠️ [UNHANDLED REJECTION]', reason && reason.message ? reason.message : reason);
-});
-process.on('uncaughtException', (err) => {
-  console.error('❌ [UNCAUGHT EXCEPTION]', err && err.message ? err.message : err);
-});
+const UsbBridge = require('./src/hardware/UsbBridge');
+const TunnelService = require('./src/server/TunnelService');
+const tg = require('./src/server/TelegramNotifier');
 
 const HTTP_PORT = parseInt(process.env.PORT || '4000', 10);
-const WS_PORT = parseInt(process.env.WS_PORT || '4001', 10);
-const TCP_CHALLENGE_PORT = parseInt(process.env.TCP_PORT || '5050', 10);
+const TCP_PORT = parseInt(process.env.TCP_PORT || '5050', 10);
+const DEVICE_ID = (process.env.BARQ_DEVICE_ID || 'ALPHA').toUpperCase();
+const FRONTEND_DIR = path.resolve(__dirname, '..', 'frontend');
 
-// ============================================================
-// 1. HARDWARE CONTROLLER & RELAY SERVER INSTANTIATION
-// ============================================================
-const hwController = new HardwareController({
-  alphaPort: 'COM3',
-  bravoPort: 'COM4',
-  baudRate: 9600
-});
+const relay = new RelayServer({ port: TCP_PORT, deliveryTimeoutMs: 25000 });
+const usb = new UsbBridge();
+const tunnelService = new TunnelService();
+const events = [];
 
-const challengeServer = new RelayServer({ port: TCP_CHALLENGE_PORT }); // BARQ-RELAY-v1 + BARQ-CHALLENGE-v1 compat
-const tunnelManager = new TunnelManager(TCP_CHALLENGE_PORT);
-hwController.setTunnelManager(tunnelManager);
-hwController.setRelayServer(challengeServer);
-
-// WebSocket Clients Set
-const wsClients = new Set();
-
-function broadcastWs(eventType, payload) {
-  const msg = JSON.stringify({ type: eventType, data: payload, timestamp: new Date().toISOString() });
-  for (const client of wsClients) {
-    if (!client.destroyed && client.writable) {
-      try {
-        sendWsFrame(client, msg);
-      } catch (e) {
-        wsClients.delete(client);
-      }
-    }
+function readEndpoint() {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(__dirname, 'pinggy_endpoint.json'), 'utf8'));
+  } catch {
+    return null;
   }
 }
 
-// Attach Hardware Events to WebSocket Broadcaster
-hwController.on('node_state_change', (evt) => {
-  broadcastWs('NODE_STATE_CHANGE', evt);
-  broadcastWs('NODE_SNAPSHOT', hwController.getSnapshot());
+function probeTcp(host, port, timeoutMs = 2500) {
+  return new Promise((resolve) => {
+    const sock = net.connect({ host, port });
+    const t = setTimeout(() => { sock.destroy(); resolve(false); }, timeoutMs);
+    sock.on('connect', () => { clearTimeout(t); sock.destroy(); resolve(true); });
+    sock.on('error', () => { clearTimeout(t); resolve(false); });
+  });
+}
+
+let lastTunnelProbe = { time: 0, open: false, key: '' };
+async function getCachedTunnelOpen(endpoint) {
+  if (!endpoint || (!endpoint.ip && !endpoint.host) || !endpoint.port) return false;
+  const key = `${endpoint.ip || endpoint.host}:${endpoint.port}`;
+  const now = Date.now();
+  if (lastTunnelProbe.key === key && now - lastTunnelProbe.time < 6000) {
+    return lastTunnelProbe.open;
+  }
+  const open = await probeTcp(endpoint.ip || endpoint.host, Number(endpoint.port), 2500);
+  lastTunnelProbe = { time: now, open, key };
+  return open;
+}
+
+function pushEvent(text, extra = {}) {
+  const row = { at: new Date().toISOString(), text, ...extra };
+  events.unshift(row);
+  if (events.length > 40) events.pop();
+  console.log(`[EVENT] ${text}`);
+}
+
+relay.on('device_registered', (rec) => {
+  pushEvent(`الجهاز ${rec.deviceId} اتصل عبر الشبكة وسجّل نفسه`, rec);
+  tg.notifyDeviceOnline(rec.deviceId).catch(() => {});
+});
+relay.on('device_offline', (rec) => {
+  pushEvent(`الجهاز ${rec.deviceId} انقطع`, rec);
+  tg.notifyDeviceOffline(rec.deviceId).catch(() => {});
+});
+relay.on('delivery_confirmed', (rec) => {
+  pushEvent(`الأمر وصل للجهاز وتم تنفيذه (${rec.status || 'EXECUTED'})`, rec);
+  tg.notifyCommandExecuted(rec.deviceId || DEVICE_ID, rec.cmd || rec.payload, rec.status).catch(() => {});
 });
 
-hwController.on('node_gprs_change', (evt) => {
-  broadcastWs('GPRS_STATE_CHANGE', evt);
-  broadcastWs('NODE_SNAPSHOT', hwController.getSnapshot());
-});
+function deviceOnline() {
+  const sock = relay._sessions.get(DEVICE_ID);
+  return Boolean(sock && !sock.destroyed);
+}
 
-hwController.on('node_telemetry', (evt) => {
-  broadcastWs('NODE_TELEMETRY', evt);
-});
+function sendJson(res, code, data) {
+  res.writeHead(code, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Access-Control-Allow-Origin': '*'
+  });
+  res.end(JSON.stringify(data));
+}
 
-hwController.on('raw_event', (evt) => {
-  broadcastWs('RAW_AT_EVENT', evt);
-});
+function readBody(req) {
+  return new Promise((resolve, reject) => {
+    let body = '';
+    req.on('data', (c) => { body += c; });
+    req.on('end', () => {
+      try {
+        resolve(body ? JSON.parse(body) : {});
+      } catch {
+        reject(new Error('INVALID_JSON'));
+      }
+    });
+  });
+}
 
-hwController.on('node_error', (evt) => {
-  broadcastWs('NODE_ERROR', evt);
-});
-
-hwController.on('relay_state_change', (evt) => {
-  broadcastWs('RELAY_STATE_CHANGE', evt);
-  broadcastWs('NODE_SNAPSHOT', hwController.getSnapshot());
-});
-
-hwController.on('message_queued', (msg) => {
-  broadcastWs('RELAY_MESSAGE_QUEUED', msg);
-});
-
-hwController.on('message_sent', (msg) => {
-  broadcastWs('RELAY_MESSAGE_SENT', msg);
-});
-
-hwController.on('message_delivered', (msg) => {
-  broadcastWs('RELAY_MESSAGE_DELIVERED', msg);
-  broadcastWs('NODE_SNAPSHOT', hwController.getSnapshot());
-});
-
-hwController.on('message_failed', (msg) => {
-  broadcastWs('RELAY_MESSAGE_FAILED', msg);
-  broadcastWs('NODE_SNAPSHOT', hwController.getSnapshot());
-});
-
-hwController.on('message_received', (msg) => {
-  broadcastWs('RELAY_MESSAGE_RECEIVED', msg);
-  broadcastWs('NODE_SNAPSHOT', hwController.getSnapshot());
-});
-
-hwController.on('delivery_ack_sent', (evt) => {
-  broadcastWs('DELIVERY_ACK_SENT', evt);
-});
-
-challengeServer.on('challenge_received', (rec) => {
-  broadcastWs('SERVER_CHALLENGE_RECEIVED', rec);
-});
-
-challengeServer.on('response_sent', (rec) => {
-  broadcastWs('SERVER_RESPONSE_SENT', rec);
-});
-
-challengeServer.on('device_registered', (rec) => {
-  broadcastWs('SERVER_DEVICE_REGISTERED', rec);
-});
-
-challengeServer.on('device_offline', (rec) => {
-  broadcastWs('SERVER_DEVICE_OFFLINE', rec);
-});
-
-challengeServer.on('relay_forwarded', (rec) => {
-  broadcastWs('SERVER_RELAY_FORWARDED', rec);
-});
-
-challengeServer.on('delivery_confirmed', (rec) => {
-  broadcastWs('SERVER_DELIVERY_CONFIRMED', rec);
-});
-
-tunnelManager.on('ready', (endpoint) => {
-  broadcastWs('TUNNEL_ENDPOINT_UPDATED', endpoint);
-  broadcastWs('NODE_SNAPSHOT', hwController.getSnapshot());
-});
-
-// ============================================================
-// ============================================================
-// 2. UNIFIED WEB DASHBOARD & REST API (HTTP Port 4000)
-// ============================================================
-const FRONTEND_DIR = path.resolve(__dirname, '..', 'frontend');
-const STATIC_MIME = {
-  '.html': 'text/html; charset=utf-8',
-  '.js':   'application/javascript; charset=utf-8',
-  '.mjs':  'application/javascript; charset=utf-8',
-  '.css':  'text/css; charset=utf-8',
-  '.json': 'application/json; charset=utf-8',
-  '.svg':  'image/svg+xml',
-  '.png':  'image/png',
-  '.ico':  'image/x-icon',
-  '.woff': 'font/woff',
-  '.woff2':'font/woff2',
-  '.webp': 'image/webp'
+const COMMANDS = {
+  on: 'LED_ON',
+  off: 'LED_OFF',
+  blink: 'LED_BLINK',
+  LED_ON: 'LED_ON',
+  LED_OFF: 'LED_OFF',
+  LED_BLINK: 'LED_BLINK',
+  RELAY_ON: 'LED_ON',
+  RELAY_OFF: 'LED_OFF'
 };
 
 const apiServer = http.createServer(async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') {
-    res.writeHead(200);
+    res.writeHead(204);
     return res.end();
   }
 
-  const parsedUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
-  const pathname = parsedUrl.pathname;
+  const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+  const pathname = url.pathname;
 
-  // Serve Static Frontend files for non-API routes
-  if (!pathname.startsWith('/api')) {
-    let relPath = pathname;
-    if (relPath === '/' || relPath === '') relPath = '/index.html';
-    const filePath = path.resolve(FRONTEND_DIR, '.' + relPath);
-    if (!filePath.startsWith(FRONTEND_DIR)) {
-      res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
-      return res.end('Forbidden');
-    }
-
-    fs.stat(filePath, (err, stats) => {
-      if (err || !stats.isFile()) {
-        if (!path.extname(relPath)) {
-          const indexFile = path.join(FRONTEND_DIR, 'index.html');
-          res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-          return fs.createReadStream(indexFile).pipe(res);
-        }
-        res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
-        return res.end(`404: Not Found`);
-      }
-
-      const ext = path.extname(filePath).toLowerCase();
-      const mime = STATIC_MIME[ext] || 'application/octet-stream';
-      res.writeHead(200, { 'Content-Type': mime });
-      fs.createReadStream(filePath).pipe(res);
-    });
-    return;
-  }
-
-  const sendJson = (statusCode, data) => {
-    res.writeHead(statusCode, { 'Content-Type': 'application/json; charset=utf-8' });
-    res.end(JSON.stringify(data));
-  };
-
-  const readJsonBody = () => new Promise((resolve, reject) => {
-    let body = '';
-    req.on('data', chunk => body += chunk);
-    req.on('end', () => {
-      try {
-        resolve(body ? JSON.parse(body) : {});
-      } catch (e) {
-        reject(new Error('INVALID_JSON'));
-      }
-    });
-  });
-
-  // 1. Platform Health
   if (pathname === '/api/health' && req.method === 'GET') {
-    return sendJson(200, {
-      status: 'HEALTHY',
-      platform: 'BARQ LINK Hardware Controller Core',
-      version: '3.1.0-LIVE',
-      uptimeSec: Math.floor(process.uptime()),
-      activeWsSessions: wsClients.size,
-      challengeServerRunning: challengeServer.isRunning,
-      hardware: {
-        alphaPort: hwController.alphaPort,
-        bravoPort: hwController.bravoPort,
-        isInitialized: hwController.isInitialized
-      }
+    return sendJson(res, 200, {
+      status: 'ok',
+      mode: 'simple-cellular',
+      tcpPort: TCP_PORT,
+      deviceId: DEVICE_ID,
+      online: deviceOnline()
     });
   }
 
-  // 2. Nodes List (Snapshot)
-  if (pathname === '/api/nodes' && req.method === 'GET') {
-    return sendJson(200, hwController.getSnapshot());
+  if (pathname === '/api/status' && req.method === 'GET') {
+    const endpoint = readEndpoint();
+    return sendJson(res, 200, {
+      deviceId: DEVICE_ID,
+      online: deviceOnline(),
+      sessions: relay.getActiveSessions(),
+      events,
+      endpoint,
+      usb: usb.snapshot(),
+      steps: usb.parseSteps()
+    });
   }
 
-  // 3. Single Node Details
-  if (pathname.startsWith('/api/nodes/') && req.method === 'GET' && !pathname.includes('/', 12)) {
-    const nodeId = pathname.replace('/api/nodes/', '').toUpperCase();
-    const node = hwController.getNode(nodeId);
-    if (!node) return sendJson(404, { error: `Node ${nodeId} not found` });
-    return sendJson(200, node.getSnapshot());
+  if (pathname === '/api/diag' && req.method === 'GET') {
+    const endpoint = readEndpoint();
+    const tunnelOpen = await getCachedTunnelOpen(endpoint);
+    const sessions = relay.getActiveSessions();
+    const remote = sessions[DEVICE_ID] || '';
+    const cellular = Boolean(remote);
+    return sendJson(res, 200, {
+      server: true,
+      tcpPort: TCP_PORT,
+      deviceOnline: deviceOnline(),
+      cellular,
+      sessionRemote: remote,
+      endpoint,
+      tunnelOpen,
+      usb: usb.snapshot(),
+      steps: usb.parseSteps()
+    });
   }
 
-  // 4. Trigger Diagnostics Scan
-  if (pathname === '/api/diagnostics/stage2' && req.method === 'POST') {
+  if (pathname === '/api/tunnel/renew' && req.method === 'POST') {
     try {
-      const reports = await hwController.runAllDiagnostics();
-      broadcastWs('DIAGNOSTICS_COMPLETED', reports);
-      return sendJson(200, { success: true, reports });
+      pushEvent('تجديد نفق الإنترنت وربط الأردوينو على العنوان الجديد');
+      const result = await tunnelService.renew(usb);
+      pushEvent(`النفق ${result.ip}:${result.port}` + (result.uploaded ? ' وتم رفع الكود' : ' — الرفع فشل: ' + (result.uploadError || '')));
+      return sendJson(res, 200, result);
     } catch (err) {
-      return sendJson(500, { success: false, error: err.message });
+      pushEvent('فشل تجديد النفق: ' + err.message);
+      return sendJson(res, 500, { ok: false, error: err.message });
     }
   }
 
-  // 5. Open Node Serial Port
-  if (pathname.match(/^\/api\/nodes\/([^\/]+)\/serial\/open$/) && req.method === 'POST') {
-    const nodeId = pathname.match(/^\/api\/nodes\/([^\/]+)\/serial\/open$/)[1].toUpperCase();
+  if (pathname === '/api/usb/close' && req.method === 'POST') {
     try {
-      const result = await hwController.openNode(nodeId);
-      broadcastWs('NODE_SNAPSHOT', hwController.getSnapshot());
-      return sendJson(200, { success: true, ...result });
+      await usb.close();
+      return sendJson(res, 200, { ok: true, usb: usb.snapshot() });
     } catch (err) {
-      return sendJson(500, { success: false, error: err.message });
+      return sendJson(res, 500, { ok: false, error: err.message });
     }
   }
 
-  // 6. Close Node Serial Port
-  if (pathname.match(/^\/api\/nodes\/([^\/]+)\/serial\/close$/) && req.method === 'POST') {
-    const nodeId = pathname.match(/^\/api\/nodes\/([^\/]+)\/serial\/close$/)[1].toUpperCase();
+  if (pathname === '/api/usb/open' && req.method === 'POST') {
     try {
-      const result = await hwController.closeNode(nodeId);
-      broadcastWs('NODE_SNAPSHOT', hwController.getSnapshot());
-      return sendJson(200, { success: true, ...result });
-    } catch (err) {
-      return sendJson(500, { success: false, error: err.message });
-    }
-  }
-
-  // 7. Initialize GPRS (APN + QINDI=1 + Activate + Query IP)
-  if (pathname.match(/^\/api\/nodes\/([^\/]+)\/relay\/init-gprs$/) && req.method === 'POST') {
-    const nodeId = pathname.match(/^\/api\/nodes\/([^\/]+)\/relay\/init-gprs$/)[1].toUpperCase();
-    try {
-      const { apn } = await readJsonBody();
-      const result = await hwController.initGprs(nodeId, apn || 'internet');
-      broadcastWs('NODE_SNAPSHOT', hwController.getSnapshot());
-      return sendJson(200, { success: true, ...result });
-    } catch (err) {
-      return sendJson(500, { success: false, error: err.message });
-    }
-  }
-
-  // 8. Connect to Relay Server (Full Handshake + REGISTER_ACK)
-  if (pathname.match(/^\/api\/nodes\/([^\/]+)\/relay\/connect$/) && req.method === 'POST') {
-    const nodeId = pathname.match(/^\/api\/nodes\/([^\/]+)\/relay\/connect$/)[1].toUpperCase();
-    try {
-      const { host, port, apn } = await readJsonBody();
-      const result = await hwController.connectRelay(nodeId, host, port, apn || 'internet');
-      broadcastWs('NODE_SNAPSHOT', hwController.getSnapshot());
-      return sendJson(200, { success: true, ...result });
-    } catch (err) {
-      return sendJson(500, { success: false, error: err.message });
-    }
-  }
-
-  // 9. Disconnect Node from Relay Server
-  if (pathname.match(/^\/api\/nodes\/([^\/]+)\/relay\/disconnect$/) && req.method === 'POST') {
-    const nodeId = pathname.match(/^\/api\/nodes\/([^\/]+)\/relay\/disconnect$/)[1].toUpperCase();
-    try {
-      const result = await hwController.disconnectRelay(nodeId);
-      broadcastWs('NODE_SNAPSHOT', hwController.getSnapshot());
-      return sendJson(200, { success: true, ...result });
-    } catch (err) {
-      return sendJson(500, { success: false, error: err.message });
-    }
-  }
-
-  // 10. Refresh Node Hardware Status (Read-Only AT Queries)
-  if (pathname.match(/^\/api\/nodes\/([^\/]+)\/status\/refresh$/) && req.method === 'POST') {
-    const nodeId = pathname.match(/^\/api\/nodes\/([^\/]+)\/status\/refresh$/)[1].toUpperCase();
-    try {
-      const snapshot = await hwController.refreshNodeStatus(nodeId);
-      broadcastWs('NODE_SNAPSHOT', hwController.getSnapshot());
-      return sendJson(200, { success: true, nodeId, snapshot });
-    } catch (err) {
-      return sendJson(500, { success: false, error: err.message });
-    }
-  }
-
-  // 11. Send Application Message (RELAY) & Await DELIVERY_ACK
-  if (pathname === '/api/relay/send' && req.method === 'POST') {
-    try {
-      const body = await readJsonBody();
-      const from = body.from || 'WEB_CONSOLE';
-      const to = body.to || 'ALPHA';
-      const payload = body.payload;
-      const timeoutMs = body.timeoutMs || 25000;
-
-      if (!payload) {
-        return sendJson(400, { success: false, error: 'payload is required' });
+      await usb.ensureOpen();
+      pushEvent('فتح منفذ USB COM4 لمراقبة الأردوينو وأوامر AT');
+      const ep = readEndpoint();
+      if (ep && (ep.ip || ep.host) && ep.port) {
+        const target = `${ep.ip || ep.host}:${ep.port}`;
+        setTimeout(() => {
+          usb.writeLine(`SET_SERVER ${target}`).catch(() => {});
+        }, 1500);
       }
+      return sendJson(res, 200, { ok: true, usb: usb.snapshot() });
+    } catch (err) {
+      return sendJson(res, 500, { ok: false, error: err.message });
+    }
+  }
 
-      const fromId = from.toUpperCase();
-      const toId = to.toUpperCase();
+  if ((pathname === '/api/at' || pathname === '/api/usb/cmd') && req.method === 'POST') {
+    try {
+      const body = await readBody(req);
+      let cmd = String(body.cmd || body.command || 'AT').trim();
+      const lines = await usb.command(cmd, Number(body.waitMs) || 4000);
+      pushEvent('أمر عبر USB: ' + cmd);
+      return sendJson(res, 200, { ok: true, cmd, lines });
+    } catch (err) {
+      return sendJson(res, 500, { ok: false, error: err.message });
+    }
+  }
 
-      // Check if target device is registered either in local serial clients or standalone TCP sessions
-      const localClient = hwController.relayClients.get(toId);
-      const isLocalRegistered = localClient && localClient._state === 'REGISTERED';
-      const isTcpRegistered = challengeServer._sessions.has(toId) && !challengeServer._sessions.get(toId).destroyed;
+  if (pathname === '/api/usb/led' && req.method === 'POST') {
+    try {
+      const body = await readBody(req);
+      const map = { on: 'USB_LED_ON', off: 'USB_LED_OFF', blink: 'USB_LED_BLINK' };
+      const cmd = map[body.action] || map[String(body.action || '').toLowerCase()];
+      if (!cmd) return sendJson(res, 400, { ok: false, error: 'on أو off أو blink' });
+      const lines = await usb.command(cmd, 2500);
+      pushEvent('أمر ضوء عبر USB: ' + cmd);
+      return sendJson(res, 200, { ok: true, cmd, lines });
+    } catch (err) {
+      return sendJson(res, 500, { ok: false, error: err.message });
+    }
+  }
 
-      if (!isLocalRegistered && !isTcpRegistered) {
-        return sendJson(400, {
-          success: false,
-          error: `DESTINATION_OFFLINE: Device ${toId} is not connected or registered with Relay Server`
+  if ((pathname === '/api/led' || pathname === '/api/command') && req.method === 'POST') {
+    try {
+      const body = await readBody(req);
+      const raw = String(body.action || body.cmd || body.payload || '').trim();
+      const cmd = COMMANDS[raw] || COMMANDS[raw.toUpperCase()];
+      if (!cmd) {
+        return sendJson(res, 400, { ok: false, error: 'استخدم on أو off أو blink' });
+      }
+      if (!deviceOnline()) {
+        return sendJson(res, 409, {
+          ok: false,
+          error: `الجهاز ${DEVICE_ID} غير متصل. وصّل طاقة الأردوينو والمودم وانتظر تسجيل الشريحة.`
         });
       }
-
-      // Server-side command allowlist validation
-      const ALLOWED_COMMANDS = ['RELAY_ON', 'RELAY_OFF', 'STATUS_QUERY', 'STATUS', 'PING', 'BARQ_LIVE_PING'];
-      let cmdName = null;
-      if (typeof payload === 'object' && payload !== null) {
-        cmdName = payload.cmd || (payload.ping ? 'PING' : null);
-      } else if (typeof payload === 'string') {
-        const trimmed = payload.trim();
-        if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
-          try {
-            const parsed = JSON.parse(trimmed);
-            cmdName = parsed.cmd || (parsed.ping ? 'PING' : null);
-          } catch (_) {
-            return sendJson(400, { success: false, error: 'MALFORMED: Invalid JSON in payload' });
-          }
-        } else {
-          cmdName = trimmed;
-        }
-      }
-
-      if (!cmdName || !ALLOWED_COMMANDS.includes(cmdName.toUpperCase())) {
-        return sendJson(400, {
-          success: false,
-          error: `INVALID_COMMAND: Command "${cmdName || 'UNKNOWN'}" is not permitted. Allowed: RELAY_ON, RELAY_OFF, STATUS_QUERY, PING`
-        });
-      }
-
-      let chatMsg;
-      const localSender = hwController.relayClients.get(fromId);
-      if (localSender && localSender._state === 'REGISTERED') {
-        chatMsg = await hwController.sendRelayMessage(fromId, toId, payload, timeoutMs);
-      } else {
-        // Standalone cellular node mode: dispatch from Web Console / Server directly through TCP RelayServer
-        chatMsg = await challengeServer.sendRelayFromWeb(fromId, toId, payload, timeoutMs);
-        hwController._addMessage(chatMsg);
-        if (chatMsg.status === 'FAILED') {
-          broadcastWs('RELAY_MESSAGE_FAILED', chatMsg);
-        } else {
-          broadcastWs('RELAY_MESSAGE_DELIVERED', chatMsg);
-        }
-      }
-
-      broadcastWs('NODE_SNAPSHOT', hwController.getSnapshot());
-      const isSuccess = chatMsg.status !== 'FAILED';
-      return sendJson(isSuccess ? 200 : 400, { success: isSuccess, message: chatMsg });
+      pushEvent(`إرسال ${cmd} إلى ${DEVICE_ID}`);
+      const result = await relay.sendRelayFromWeb('WEB', DEVICE_ID, cmd, 25000);
+      return sendJson(res, 200, { ok: true, cmd, result });
     } catch (err) {
-      return sendJson(500, { success: false, error: err.message });
+      pushEvent(`فشل الأمر: ${err.message}`);
+      return sendJson(res, 500, { ok: false, error: err.message });
     }
   }
 
-  // 12. Message History
-  if (pathname === '/api/relay/messages' && req.method === 'GET') {
-    return sendJson(200, hwController.messages);
+  if (pathname === '/favicon.ico') {
+    res.writeHead(204);
+    return res.end();
   }
 
-  // 13. Emergency STOP ALL
-  if (pathname === '/api/emergency/stop-all' && req.method === 'POST') {
-    try {
-      const results = await hwController.emergencyStopAll();
-      broadcastWs('EMERGENCY_STOP', results);
-      broadcastWs('NODE_SNAPSHOT', hwController.getSnapshot());
-      return sendJson(200, { success: true, results });
-    } catch (err) {
-      return sendJson(500, { success: false, error: err.message });
-    }
+  if (pathname.startsWith('/api')) {
+    return sendJson(res, 404, {
+      ok: false,
+      error: 'مسار غير موجود. استخدم /api/status أو POST /api/led'
+    });
   }
 
-  // 14. Active Relay / Tunnel Endpoint
-  if (pathname === '/api/tunnel/endpoint' && req.method === 'GET') {
-    return sendJson(200, hwController.getDefaultRelayEndpoint());
-  }
-
-  // 15. Send Manual AT Command to Node
-  if (pathname.match(/^\/api\/nodes\/([^\/]+)\/at$/) && req.method === 'POST') {
-    const nodeId = pathname.match(/^\/api\/nodes\/([^\/]+)\/at$/)[1].toUpperCase();
-    const node = hwController.getNode(nodeId);
-    if (!node) return sendJson(404, { error: `Node ${nodeId} not found` });
-
-    try {
-      const { command, timeoutMs } = await readJsonBody();
-      if (!command) return sendJson(400, { error: 'Command is required' });
-
-      const result = await node.sendCommand(command, { timeoutMs: timeoutMs || 5000 });
-      return sendJson(200, {
-        success: true,
-        nodeId,
-        command,
-        raw: result.raw,
-        lines: result.lines
-      });
-    } catch (err) {
-      return sendJson(500, { success: false, error: err.message });
-    }
-  }
-
-  // 16. Raw Logs Feed
-  if (pathname === '/api/raw-logs' && req.method === 'GET') {
-    return sendJson(200, hwController.rawLogs);
-  }
-
-  // Fallback 404
-  return sendJson(404, { error: 'Not Found' });
+  const indexFile = path.join(FRONTEND_DIR, 'index.html');
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  fs.createReadStream(indexFile).pipe(res);
 });
 
-apiServer.listen(HTTP_PORT, '0.0.0.0', () => {
-  console.log(`🚀 [BARQ REST API] Listening on http://localhost:${HTTP_PORT}`);
-});
+async function start() {
+  await relay.start();
+  await new Promise((resolve) => apiServer.listen(HTTP_PORT, '0.0.0.0', resolve));
+  console.log(`واجهة الويب: http://localhost:${HTTP_PORT}`);
+  console.log(`TCP للأردوينو (عبر الشريحة): 0.0.0.0:${TCP_PORT}`);
+  console.log(`الجهاز المتوقع: ${DEVICE_ID}`);
 
-// ============================================================
-// 3. NATIVE WEBSOCKET GATEWAY (Dual Ports: HTTP_PORT & WS_PORT)
-// ============================================================
-const wsHttpServer = http.createServer((req, res) => {
-  res.writeHead(200); res.end('BARQ WebSocket Endpoint');
-});
-
-function handleWsUpgrade(req, socket, head) {
-  const key = req.headers['sec-websocket-key'];
-  if (!key) {
-    socket.destroy();
-    return;
-  }
-
-  const acceptKey = crypto
-    .createHash('sha1')
-    .update(key + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11')
-    .digest('base64');
-
-  const headers = [
-    'HTTP/1.1 101 Switching Protocols',
-    'Upgrade: websocket',
-    'Connection: Upgrade',
-    `Sec-WebSocket-Accept: ${acceptKey}`,
-    '\r\n'
-  ];
-
-  socket.write(headers.join('\r\n'));
-  wsClients.add(socket);
-
-  // Send initial snapshot
-  const initialPayload = JSON.stringify({
-    type: 'INIT_SNAPSHOT',
-    data: {
-      snapshot: hwController.getSnapshot(),
-      rawLogs: hwController.rawLogs.slice(0, 50)
-    }
-  });
-  sendWsFrame(socket, initialPayload);
-
-  socket.on('data', (buf) => {
-    if (buf[0] === 0x88) { // Close frame
-      wsClients.delete(socket);
-      socket.end();
-    }
-  });
-
-  socket.on('close', () => wsClients.delete(socket));
-  socket.on('error', () => wsClients.delete(socket));
-}
-
-// Upgrade WebSocket on both main web server (HTTP_PORT) and dedicated WS port (WS_PORT)
-apiServer.on('upgrade', handleWsUpgrade);
-wsHttpServer.on('upgrade', handleWsUpgrade);
-
-function sendWsFrame(sock, dataStr) {
-  const payloadBuf = Buffer.from(dataStr, 'utf8');
-  const len = payloadBuf.length;
-  let headerBuf;
-
-  if (len <= 125) {
-    headerBuf = Buffer.from([0x81, len]);
-  } else if (len <= 65535) {
-    headerBuf = Buffer.alloc(4);
-    headerBuf[0] = 0x81; headerBuf[1] = 126;
-    headerBuf.writeUInt16BE(len, 2);
+  if (process.env.NO_AUTO_TUNNEL !== '1') {
+    tunnelService.startTunnel().then((ep) => {
+      const webUrl  = ep.webUrl  || `http://localhost:${HTTP_PORT}`;
+      const tcpHost = ep.ip || ep.host || 'localhost';
+      const tcpPort = ep.port || TCP_PORT;
+      console.log(`[SERVER] النفق جاهز: ${webUrl} | TCP: ${tcpHost}:${tcpPort}`);
+      tg.notifyStartup(webUrl, tcpHost, tcpPort).catch(() => {});
+    }).catch((err) => {
+      console.warn(`[SERVER] تشغيل النفق: ${err.message}`);
+      // حتى بدون نفق — أرسل الرابط المحلي
+      tg.notifyStartup(`http://localhost:${HTTP_PORT}`, 'localhost', TCP_PORT).catch(() => {});
+    });
   } else {
-    headerBuf = Buffer.alloc(10);
-    headerBuf[0] = 0x81; headerBuf[1] = 127;
-    headerBuf.writeBigUInt64BE(BigInt(len), 2);
+    // وضع السحابة: لا يوجد نفق — أرسل العنوان الثابت
+    const cloudUrl = process.env.PUBLIC_URL || `http://localhost:${HTTP_PORT}`;
+    tg.notifyStartup(cloudUrl, process.env.PUBLIC_HOST || 'localhost', TCP_PORT).catch(() => {});
   }
-
-  sock.write(Buffer.concat([headerBuf, payloadBuf]));
 }
 
-wsHttpServer.listen(WS_PORT, '0.0.0.0', () => {
-  console.log(`🌐 [BARQ WebSocket] Listening on ws://localhost:${WS_PORT}`);
+start().catch((err) => {
+  console.error(err);
+  process.exit(1);
 });
 
-// ============================================================
-// 4. HARDWARE & CHALLENGE SERVER STARTUP SEQUENCE
-// ============================================================
-async function startAllServices() {
-  console.log('⚡ [SERVICES] Starting Relay Server on TCP 5050...');
-  try {
-    await challengeServer.start();
-  } catch (err) {
-    console.error('⚠️ [RELAY SERVER] Error:', err.message);
-  }
-
-  // Autonomous Pinggy TCP tunnel startup (non-blocking)
-  tunnelManager.start().catch((err) => {
-    console.warn('⚠️ [TUNNEL] Tunnel initialization warning:', err.message);
-  });
-
-  console.log('⚡ [HARDWARE] Initializing Quectel M25 Hardware Controller (Zero Auto-Open)...');
-  try {
-    await hwController.initialize();
-    console.log('⚡ [HARDWARE] Controller initialized. Serial ports remain CLOSED until user action.');
-  } catch (err) {
-    console.error('❌ [HARDWARE START ERROR]', err.message);
-  }
-}
-
-startAllServices();
-
-// Clean Process Shutdown
 process.on('SIGINT', async () => {
-  console.log('\n[SHUTDOWN] Releasing hardware serial ports, stopping tunnel & relay server...');
-  await tunnelManager.stop();
-  await challengeServer.stop();
-  await hwController.shutdown();
+  try { if (usb.port && usb.port.isOpen) usb.port.close(); } catch (_) {}
+  try { await tunnelService.killOld(); } catch (_) {}
+  await relay.stop();
   process.exit(0);
 });
 
-module.exports = { apiServer, wsHttpServer, challengeServer, hwController };
+module.exports = { apiServer, challengeServer: relay };

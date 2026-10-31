@@ -1,20 +1,20 @@
 {
   "endpoint": {
-    "host": "wmvog-213-6-167-221.run.pinggy-free.link",
-    "port": 35703,
-    "url": "tcp://wmvog-213-6-167-221.run.pinggy-free.link:35703",
-    "webUrl": "https://mnupm-213-6-167-221.free.pinggy.net",
-    "timestamp": "2026-10-18T20:52:25.910Z"
+    "host": "mvvov-188-161-28-250.run.pinggy-free.link",
+    "port": 32769,
+    "url": "tcp://mvvov-188-161-28-250.run.pinggy-free.link:32769",
+    "webUrl": "https://aledt-188-161-28-250.free.pinggy.net",
+    "timestamp": "2026-10-30T12:40:22.263Z"
   },
   "ips": [
-    "172.233.255.158"
+    "172.105.83.27"
   ],
   "viaIp": {
     "label": "TUNNEL_IP",
-    "host": "172.233.255.158",
-    "port": 35703,
+    "host": "172.105.83.27",
+    "port": 32769,
     "ok": true
   },
-  "webUrl": "https://mnupm-213-6-167-221.free.pinggy.net",
-  "verifiedAt": "2026-10-18T20:52:25.910Z"
+  "webUrl": "https://aledt-188-161-28-250.free.pinggy.net",
+  "verifiedAt": "2026-10-30T12:40:22.263Z"
 }

@@ -407,6 +407,14 @@ class ATParser {
       }
     }, timeoutMs);
 
+    if (this.currentPending) {
+      clearTimeout(this.currentPending.timer);
+      this.currentPending = null;
+    }
+    this._qirdReading  = false;
+    this._qirdBuf      = '';
+    this._qirdExpected = 0;
+
     this.currentPending = {
       resolve,
       reject,
@@ -417,6 +425,22 @@ class ATParser {
       expectIp:      !!options.expectIp,
       expectQird:    !!options.expectQird
     };
+  }
+
+  /**
+   * Drop UART/QIRD residue after a timeout without emitting PARSER_RESET.
+   * The timed-out command already rejected.
+   */
+  clearBuffers() {
+    this._qirdReading  = false;
+    this._qirdExpected = 0;
+    this._qirdBuf      = '';
+    this._rawBuf       = Buffer.alloc(0);
+    this.rxBuffer      = '';
+    if (this.currentPending) {
+      clearTimeout(this.currentPending.timer);
+      this.currentPending = null;
+    }
   }
 
   reset() {

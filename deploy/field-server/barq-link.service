@@ -1,0 +1,18 @@
+[Unit]
+Description=BARQ LINK field relay and operator API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/barq-link/backend
+Environment=BARQ_MODE=field
+Environment=BARQ_ENABLE_USB=0
+Environment=BARQ_ENABLE_PINGGY=0
+EnvironmentFile=-/opt/barq-link/deploy/field-server/barq.env
+ExecStart=/usr/bin/node server.js
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

@@ -22,13 +22,27 @@ class SerialTransport extends EventEmitter {
       this.port = new SerialPort({
         path: this.portPath,
         baudRate: this.baudRate,
+        dataBits: 8,
+        parity: 'none',
+        stopBits: 1,
+        rtscts: false,
+        xon: false,
+        xoff: false,
         autoOpen: false
       });
 
       this.port.on('open', () => {
         this.isOpen = true;
-        this.emit('open', { port: this.portPath, baudRate: this.baudRate });
-        resolve();
+        // USB-CDC Quectel adapters often stay silent until DTR is asserted.
+        const finish = () => {
+          this.emit('open', { port: this.portPath, baudRate: this.baudRate, framing: '8N1' });
+          resolve();
+        };
+        if (typeof this.port.set === 'function') {
+          this.port.set({ dtr: true, rts: true }, () => finish());
+        } else {
+          finish();
+        }
       });
 
       this.port.on('data', (chunk) => {

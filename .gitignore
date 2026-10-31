@@ -2,3 +2,13 @@ node_modules/
 *.log
 .DS_Store
 Thumbs.db
+
+# السر لا يُرفع على GitHub أبداً
+.env
+backend/pinggy_endpoint.json
+backend/logs/*.pid
+logs/
+
+# أدوات Arduino الكبيرة - لا ترفعها على GitHub
+tools/arduino-data/
+tools/arduino-cli.exe

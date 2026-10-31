@@ -20,11 +20,11 @@ function envFlag(name, defaultOn) {
 }
 
 function loadFieldConfig(env = process.env) {
-  const mode = (env.BARQ_MODE || 'field').toLowerCase() === 'lab' ? 'lab' : 'field';
+  const mode = (env.BARQ_MODE || 'lab').toLowerCase() === 'field' ? 'field' : 'lab';
   const host = String(env.BARQ_RELAY_HOST || '').trim();
   const port = Number(env.BARQ_RELAY_PORT || 5050);
   const enablePinggy = envFlag('BARQ_ENABLE_PINGGY', false);
-  const enableUsb = envFlag('BARQ_ENABLE_USB', mode === 'lab');
+  const enableUsb = envFlag('BARQ_ENABLE_USB', true);
 
   const staticRelay = isIPv4(host) && Number.isInteger(port) && port > 0 && port < 65536
     ? { host, port, source: 'static-ipv4' }

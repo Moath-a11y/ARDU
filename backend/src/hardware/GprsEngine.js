@@ -67,17 +67,98 @@ class GprsEngine extends EventEmitter {
   /**
    * Step 1: Configure PDP Parameters with User-Confirmed APN
    */
+  async _pause(ms) {
+    await new Promise((r) => setTimeout(r, ms));
+  }
+
+  async _tryAt(timeoutMs = 2500) {
+    const res = await this.session.sendCommand('AT', { timeoutMs });
+    this._recordEvidence('MODEM_ALIVE_CHECK', res.raw || 'OK');
+    return true;
+  }
+
+  /**
+   * Recover a silent/stuck M25: drain parser, poke AT, escape transparent mode, close TCP.
+   */
+  async _recoverModem() {
+    if (typeof this.session.recoverUart === 'function') {
+      this.session.recoverUart();
+    }
+
+    for (let i = 1; i <= 3; i++) {
+      try {
+        await this._tryAt(2500);
+        return true;
+      } catch (e) {
+        this._recordEvidence('MODEM_ALIVE_RETRY', { attempt: i, error: e.message });
+      }
+    }
+
+    // Guard-time escape from transparent/data mode (no CR/LF).
+    try {
+      if (this.session.transport && this.session.transport.isOpen) {
+        this._recordEvidence('MODEM_ESCAPE_PLUS', 'sending +++');
+        await this.session.transport.write('+++');
+        await this._pause(1200);
+      }
+    } catch (e) {
+      this._recordEvidence('MODEM_ESCAPE_PLUS_FAIL', e.message);
+    }
+
+    if (typeof this.session.recoverUart === 'function') {
+      this.session.recoverUart();
+    }
+
+    try {
+      await this._tryAt(3000);
+      return true;
+    } catch (e) {
+      this._recordEvidence('MODEM_STILL_SILENT', e.message);
+      return false;
+    }
+  }
+
   async configurePdp(apn = 'internet') {
     this._recordEvidence('STEP_PDP_CONFIG_START', { apn });
 
     try {
-      // 0. Ensure clean IP INITIAL state before applying APN
+      await this._recoverModem();
+
       try {
-        await this.session.sendCommand('AT+QIDEACT', { timeoutMs: 6000 });
-      } catch (e) {}
+        await this.session.sendCommand('AT+QICLOSE', { timeoutMs: 5000 });
+        this._recordEvidence('QICLOSE_OK', 'socket closed or none open');
+      } catch (e) {
+        this._recordEvidence('QICLOSE_SWALLOWED', e.message);
+      }
+      await this._pause(400);
+
+      try {
+        await this.session.sendCommand('AT+QIDEACT', { timeoutMs: 15000 });
+        this._recordEvidence('QIDEACT_OK', 'PDP deactivated');
+      } catch (e) {
+        this._recordEvidence('QIDEACT_SWALLOWED', e.message);
+      }
+
+      await this._pause(800);
+      if (typeof this.session.recoverUart === 'function') {
+        this.session.recoverUart();
+      }
+
+      try {
+        await this._tryAt(3000);
+      } catch (e) {
+        this._recordEvidence('POST_DEACT_AT_FAIL', e.message);
+      }
 
       // 1. Select foreground context 0
-      await this.session.sendCommand('AT+QIFGCNT=0', { timeoutMs: 3000 });
+      try {
+        await this.session.sendCommand('AT+QIFGCNT=0', { timeoutMs: 5000 });
+      } catch (e) {
+        this._recordEvidence('QIFGCNT_RETRY', e.message);
+        if (typeof this.session.recoverUart === 'function') this.session.recoverUart();
+        await this._pause(300);
+        await this.session.sendCommand('AT+QIFGCNT=0', { timeoutMs: 5000 });
+      }
 
       // 2. Set TCP receive mode: Buffer Access Mode (AT+QINDI=1)
       // Confirmed by Hardware Preflight on M25MAR01A12: default QINDI=0 drops data directly to UART.
@@ -85,7 +166,7 @@ class GprsEngine extends EventEmitter {
       // If this fails, abort PDP configuration immediately to protect UART parser.
       this._recordEvidence('STEP_QINDI_CONFIG_START', { mode: 1 });
       try {
-        await this.session.sendCommand('AT+QINDI=1', { timeoutMs: 3000 });
+        await this.session.sendCommand('AT+QINDI=1', { timeoutMs: 5000 });
         this._recordEvidence('STEP_QINDI_CONFIG_SUCCESS', { mode: 1 });
       } catch (qindiErr) {
         this._recordEvidence('STEP_QINDI_CONFIG_FAIL', qindiErr.message);
@@ -94,7 +175,7 @@ class GprsEngine extends EventEmitter {
       }
 
       // 3. Set APN
-      await this.session.sendCommand(`AT+QICSGP=1,"${apn}"`, { timeoutMs: 3000 });
+      await this.session.sendCommand(`AT+QICSGP=1,"${apn}"`, { timeoutMs: 5000 });
 
       this.apn = apn;
       this._setState(GPRS_STATES.PDP_CONFIGURED, `APN configured: ${apn}`);
@@ -115,17 +196,17 @@ class GprsEngine extends EventEmitter {
 
     try {
       // 0. Ensure GPRS service attachment (CGATT=1)
-      const gattRes = await this.session.sendCommand('AT+CGATT?', { timeoutMs: 3000 });
+      const gattRes = await this.session.sendCommand('AT+CGATT?', { timeoutMs: 8000 });
       if (!gattRes.raw.includes('+CGATT: 1')) {
         this._recordEvidence('GPRS_ATTACHING', 'Sending AT+CGATT=1');
-        await this.session.sendCommand('AT+CGATT=1', { timeoutMs: 10000 });
+        await this.session.sendCommand('AT+CGATT=1', { timeoutMs: 30000 });
       }
 
       // 1. Start TCPIP Task
-      await this.session.sendCommand('AT+QIREGAPP', { timeoutMs: 4000 });
+      await this.session.sendCommand('AT+QIREGAPP', { timeoutMs: 6000 });
 
       // 2. Activate GPRS (can take several seconds on 2G networks)
-      await this.session.sendCommand('AT+QIACT', { timeoutMs: 25000 });
+      await this.session.sendCommand('AT+QIACT', { timeoutMs: 30000 });
 
       this._setState(GPRS_STATES.PDP_ACTIVE, 'PDP Context Activated (AT+QIACT OK)');
       return { success: true };
@@ -162,6 +243,11 @@ class GprsEngine extends EventEmitter {
    * Each attempt closes any lingering socket first and logs AT+QISTAT for diagnostics.
    */
   async connectTcp(host, port) {
+    const { assertModemHost, loadFieldConfig } = require('../config/fieldConfig');
+    if (loadFieldConfig().mode === 'field') {
+      assertModemHost(host);
+    }
+
     const MAX_TCP_ATTEMPTS = 3;
     const RETRY_DELAY_MS   = 3500;
 

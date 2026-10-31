@@ -1,83 +1,237 @@
-﻿/**
- * BARQ LINK — Pinggy TCP Tunnel via Official Node.js SDK (Headless)
- * Creates a true TCP tunnel (not HTTP) pointing to local port 5050.
- * The forwarding array with type:"tcp" is required.
+/**
+ * BARQ LINK — نفق Pinggy المزدوج (HTTP + TCP) مع مراقبة نشطة وإعادة اتصال تلقائية
+ * HTTP 4000: واجهة التحكم من أي جهاز
+ * TCP  5050: مودم الشريحة (IPv4)
  */
-"use strict";
-const { pinggy, TunnelType } = require("@pinggy/pinggy");
-const net = require("net");
-const fs = require("fs");
+'use strict';
+const { pinggy, TunnelType } = require('@pinggy/pinggy');
+const net = require('net');
+const fs = require('fs');
+const path = require('path');
+const dns = require('dns');
 
-const LOCAL_PORT = 5050;
+const TCP_PORT = 5050;
+const HTTP_PORT = 4000;
+const EP_FILE = path.join(__dirname, 'pinggy_endpoint.json');
+const RETRY_DELAY_MS = 4000;
+const MAX_RETRIES = 9999;
 
-console.log("================================================");
-console.log("  BARQ LINK — Pinggy TCP Tunnel (SDK Mode)");
-console.log("  Local target: 127.0.0.1:" + LOCAL_PORT);
-console.log("================================================\n");
+let currentTunnel = null;
+let shuttingDown = false;
 
-async function verifyLocalServer() {
+function probeLocal(port) {
   return new Promise((resolve) => {
-    const probe = net.createConnection({ host: "127.0.0.1", port: LOCAL_PORT });
-    probe.on("connect", () => { probe.destroy(); resolve(true); });
-    probe.on("error", () => resolve(false));
-    setTimeout(() => resolve(false), 2000);
+    const s = net.connect({ host: '127.0.0.1', port }, () => {
+      s.destroy();
+      resolve(true);
+    });
+    s.on('error', () => resolve(false));
+    setTimeout(() => {
+      s.destroy();
+      resolve(false);
+    }, 2000);
   });
 }
 
-async function main() {
-  const localOk = await verifyLocalServer();
-  if (!localOk) {
-    console.error("ERROR: ChallengeServer NOT running on port " + LOCAL_PORT);
-    console.error("Run: node run_challenge_server.js");
-    process.exit(1);
-  }
-  console.log("ChallengeServer confirmed on :" + LOCAL_PORT + "\n");
-  console.log("Starting TCP tunnel (free tier)...");
-
-  const tunnel = await pinggy.createTunnel({
-    forwarding: [{ address: "localhost:" + LOCAL_PORT, type: TunnelType.Tcp }]
+function lookup4(host) {
+  return new Promise((resolve) => {
+    let attempts = 0;
+    function tryLookup() {
+      dns.lookup(host, { family: 4 }, (err, address) => {
+        if (!err && address) return resolve(address);
+        if (++attempts < 4) return setTimeout(tryLookup, 1200);
+        resolve(null);
+      });
+    }
+    tryLookup();
   });
+}
 
-  await tunnel.start();
+function parseTcp(url) {
+  const stripped = String(url).replace(/^tcp:\/\//, '');
+  const colonIdx = stripped.lastIndexOf(':');
+  return {
+    host: stripped.slice(0, colonIdx),
+    port: parseInt(stripped.slice(colonIdx + 1), 10)
+  };
+}
+
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+async function stopCurrent() {
+  if (currentTunnel) {
+    try {
+      await currentTunnel.stop();
+    } catch (_) {}
+    currentTunnel = null;
+  }
+}
+
+async function startOnce() {
+  console.log('[TUNNEL] بدء فتح نفق Pinggy المزدوج (HTTP ' + HTTP_PORT + ' + TCP ' + TCP_PORT + ')...');
+
+  let forwardingConfig = [
+    { address: 'localhost:' + HTTP_PORT, type: TunnelType.Http },
+    { address: 'localhost:' + TCP_PORT, type: TunnelType.Tcp }
+  ];
+  let tunnel;
+  try {
+    tunnel = await pinggy.createTunnel({ forwarding: forwardingConfig });
+    await tunnel.start();
+  } catch (err) {
+    console.warn('[TUNNEL] فشل النفق المزدوج — التحويل إلى TCP فقط:', err.message);
+    forwardingConfig = [{ address: 'localhost:' + TCP_PORT, type: TunnelType.Tcp }];
+    tunnel = await pinggy.createTunnel({ forwarding: forwardingConfig });
+    await tunnel.start();
+  }
+  currentTunnel = tunnel;
 
   const urls = await tunnel.urls();
-  if (!urls || urls.length === 0) {
-    console.error("No public URLs received");
-    process.exit(1);
-  }
+  console.log('[TUNNEL] URLs المستلمة:', urls);
 
-  const tcpUrl = urls.find(u => u.startsWith("tcp://"));
+  const webUrl = urls.find((u) => u.startsWith('https://')) || urls.find((u) => u.startsWith('http://')) || null;
+  const tcpUrl = urls.find((u) => u.startsWith('tcp://')) || urls.find((u) => /:\d+$/.test(u));
+
   if (!tcpUrl) {
-    console.error("No tcp:// URL found. Got:", urls);
-    process.exit(1);
+    throw new Error('لم يتم استلام رابط TCP من Pinggy: ' + JSON.stringify(urls));
   }
 
-  const stripped = tcpUrl.replace("tcp://", "");
-  const colonIdx = stripped.lastIndexOf(":");
-  const pubHost = stripped.slice(0, colonIdx);
-  const pubPort = parseInt(stripped.slice(colonIdx + 1), 10);
+  const parsed = parseTcp(tcpUrl);
+  const ip = await lookup4(parsed.host);
+  if (!ip) {
+    console.warn('[WARN] DNS lookup فشل لـ', parsed.host, '— سيُستخدم hostname');
+  }
+  const finalIp = ip || parsed.host;
 
-  console.log("================================================");
-  console.log("  TUNNEL ACTIVE");
-  console.log("  Public URL : " + tcpUrl);
-  console.log("  Host       : " + pubHost);
-  console.log("  Port       : " + pubPort);
-  console.log("================================================\n");
-  console.log("  ALPHA MODEM AT COMMAND:");
-  console.log('  AT+QIOPEN="TCP","' + pubHost + '",' + pubPort);
-  console.log("\n  Keep this window open during modem test.\n");
+  const endpointData = {
+    host: parsed.host,
+    port: parsed.port,
+    ip: finalIp,
+    url: tcpUrl.startsWith('tcp://') ? tcpUrl : ('tcp://' + parsed.host + ':' + parsed.port),
+    webUrl,
+    timestamp: new Date().toISOString()
+  };
 
-  const endpointData = { host: pubHost, port: pubPort, url: tcpUrl, timestamp: new Date().toISOString() };
-  fs.writeFileSync("pinggy_endpoint.json", JSON.stringify(endpointData, null, 2));
-  console.log("  Endpoint saved to pinggy_endpoint.json");
+  fs.writeFileSync(EP_FILE, JSON.stringify(endpointData, null, 2), 'utf8');
+  console.log('[TUNNEL] ✅ تم حفظ العنوان:', finalIp + ':' + parsed.port);
+  console.log('[TUNNEL] 🌐 رابط الواجهة العام:', webUrl);
 
-  process.on("SIGINT", async () => {
-    console.log("\nClosing tunnel...");
-    try { await tunnel.stop(); } catch(e) {}
-    process.exit(0);
+  try {
+    require('./patch_firmware_endpoint').patch(finalIp, parsed.port);
+  } catch (e) {
+    console.warn('[TUNNEL] خطأ في تحديث الفرموير:', e.message);
+  }
+
+  // مزامنة العنوان تلقائياً مع الأردوينو عبر USB
+  try {
+    const http = require('http');
+    const req = http.request('http://localhost:4000/api/usb/cmd', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    req.on('error', () => {});
+    req.write(JSON.stringify({ cmd: `SET_SERVER ${finalIp}:${parsed.port}` }));
+    req.end();
+  } catch (_) {}
+
+  return new Promise((resolve) => {
+    let finished = false;
+    let failCount = 0;
+    function triggerDisconnect(reason) {
+      if (finished) return;
+      finished = true;
+      console.log('[TUNNEL] ⚠️ انقطع النفق (' + reason + ') — جاري إعادة الاتصال تلقائياً...');
+      resolve();
+    }
+
+    try {
+      tunnel.setTunnelDisconnectedCallback((info) => {
+        triggerDisconnect('DisconnectedCallback: ' + (info?.error || 'closed'));
+      });
+      tunnel.setTunnelErrorCallback((err) => {
+        triggerDisconnect('ErrorCallback: ' + (err?.message || err));
+      });
+    } catch (e) {
+      console.warn('[TUNNEL] تحذير في تسجيل callbacks:', e.message);
+    }
+
+    // فحص دوري للحالة (Heartbeat) مع تسامح للأخطاء العابرة
+    const timer = setInterval(async () => {
+      if (finished || shuttingDown) {
+        clearInterval(timer);
+        return;
+      }
+      try {
+        const status = await tunnel.getStatus();
+        if (status !== 'live') {
+          failCount++;
+          if (failCount >= 3) {
+            clearInterval(timer);
+            triggerDisconnect('Status changed to ' + status);
+            return;
+          }
+        } else {
+          failCount = 0;
+        }
+      } catch (err) {
+        failCount++;
+        if (failCount >= 3) {
+          clearInterval(timer);
+          triggerDisconnect('getStatus error: ' + err.message);
+          return;
+        }
+      }
+
+      // تأكد أن السيرفر المحلي ما زال يعمل
+      const httpOk = await probeLocal(HTTP_PORT);
+      if (!httpOk) {
+        clearInterval(timer);
+        triggerDisconnect('Local HTTP server down');
+      }
+    }, 12000);
   });
-
-  setInterval(() => {}, 10000);
 }
 
-main().catch(err => { console.error("Fatal:", err.message); process.exit(1); });
+async function mainLoop() {
+  console.log('[TUNNEL] فحص السيرفر المحلي...');
+  // انتظار السيرفر حتى يشتغل إذا لم يكن جاهزاً بعد
+  for (let i = 0; i < 15; i++) {
+    const ok = (await probeLocal(HTTP_PORT)) && (await probeLocal(TCP_PORT));
+    if (ok) break;
+    console.log('[TUNNEL] بانتظار تشغيل السيرفر المحلي (4000 و 5050)... ' + (i + 1) + '/15');
+    await sleep(2000);
+  }
+
+  let attempt = 0;
+  while (!shuttingDown && attempt < MAX_RETRIES) {
+    attempt++;
+    try {
+      if (attempt > 1) {
+        console.log(`[TUNNEL] محاولة فتح النفق #${attempt}...`);
+        await stopCurrent();
+        await sleep(RETRY_DELAY_MS);
+      }
+      await startOnce();
+      // إذا عاد startOnce بدون خطأ، فهذا يعني أن النفق انقطع طبيعياً
+      attempt = 0;
+    } catch (err) {
+      console.error('[TUNNEL] خطأ في النفق:', err.message);
+      await stopCurrent();
+      await sleep(RETRY_DELAY_MS);
+    }
+  }
+}
+
+const stop = async () => {
+  shuttingDown = true;
+  console.log('[TUNNEL] إيقاف النفق...');
+  await stopCurrent();
+  process.exit(0);
+};
+
+process.on('SIGINT', stop);
+process.on('SIGTERM', stop);
+
+mainLoop();

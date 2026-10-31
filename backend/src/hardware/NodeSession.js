@@ -179,10 +179,19 @@ class NodeSession extends EventEmitter {
     } catch (err) {
       this.attributes.lastError = err.message;
       this.attributes.lastRawResponse = err.message;
+      if (this.parser && typeof this.parser.clearBuffers === 'function') {
+        this.parser.clearBuffers();
+      }
       reject(err);
     } finally {
       this.isProcessingQueue = false;
       setImmediate(() => this._processQueue());
+    }
+  }
+
+  recoverUart() {
+    if (this.parser && typeof this.parser.clearBuffers === 'function') {
+      this.parser.clearBuffers();
     }
   }
 

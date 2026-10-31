@@ -14,6 +14,9 @@ const { SerialPort } = require('serialport');
 const SerialTransport = require('./SerialTransport');
 const { NodeSession, STATES } = require('./NodeSession');
 const GprsRelayClient = require('./GprsRelayClient');
+const PicIoRuntime = require('../runtime/PicIoRuntime');
+const { isProcessCommand } = require('../protocol/ProcessCommands');
+const { loadFieldConfig } = require('../config/fieldConfig');
 
 class HardwareController extends EventEmitter {
   constructor(config = {}) {
@@ -24,6 +27,7 @@ class HardwareController extends EventEmitter {
 
     this.nodes = new Map();
     this.relayClients = new Map(); // nodeId -> GprsRelayClient
+    this.picRuntimes = new Map();  // nodeId -> PicIoRuntime
     this.messages = []; // Rolling buffer of chat/relay messages
     this.maxMessages = 100;
     this.rawLogs = []; // Rolling buffer of raw events { id, timestamp, nodeId, dir: 'TX'|'RX', data }
@@ -45,6 +49,17 @@ class HardwareController extends EventEmitter {
    * Prefers numeric IP for cellular modem (Quectel M25) connections to bypass slow/unreliable 2G DNS.
    */
   getDefaultRelayEndpoint() {
+    const field = loadFieldConfig();
+    if (field.relay && field.relay.host) {
+      return {
+        host: field.relay.host,
+        port: field.relay.port,
+        hostname: field.relay.host,
+        ip: field.relay.host,
+        timestamp: new Date().toISOString(),
+        source: 'static-ipv4'
+      };
+    }
     if (this.tunnelManager && this.tunnelManager.getEndpoint()) {
       return this.tunnelManager.getEndpoint();
     }
@@ -126,6 +141,8 @@ class HardwareController extends EventEmitter {
     const bravoSession = new NodeSession('BRAVO', this.bravoPort, bravoTransport, { baudRate: this.baudRate });
     this._attachSessionListeners(bravoSession);
     this.nodes.set('BRAVO', bravoSession);
+    this.picRuntimes.set('ALPHA', new PicIoRuntime({ failSafeMs: loadFieldConfig().failSafeMs }));
+    this.picRuntimes.set('BRAVO', new PicIoRuntime({ failSafeMs: loadFieldConfig().failSafeMs }));
 
     this.isInitialized = true;
   }
@@ -298,7 +315,7 @@ class HardwareController extends EventEmitter {
         to: nodeId,
         payload: msg.payload,
         receivedAt: new Date().toISOString(),
-        status: 'DELIVERED',
+        status: 'RECEIVED',
         direction: `${msg.from}->${nodeId}`,
         contentMatch: msg.contentMatch ?? true,
         payloadHash: msg.payloadHash
@@ -306,10 +323,23 @@ class HardwareController extends EventEmitter {
       this._addMessage(chatMsg);
       this.emit('message_received', chatMsg);
 
-      // Automatic DELIVERY_ACK confirmation back to sender
+      if (isProcessCommand(msg.payload)) {
+        const pic = this.picRuntimes.get(nodeId) || new PicIoRuntime();
+        const result = pic.execute(msg.payload);
+        chatMsg.pic = result;
+        if (!result.ok) {
+          chatMsg.status = 'FAILED';
+          chatMsg.error = result.code;
+          this.emit('message_failed', chatMsg);
+          return;
+        }
+      }
+
+      // DELIVERY_ACK only after PIC (or app) execution — never on SEND OK
       if (typeof msg.confirm === 'function') {
         try {
           await msg.confirm();
+          chatMsg.status = 'DELIVERED';
           this.emit('delivery_ack_sent', { nodeId, msgId: msg.msgId, payloadHash: msg.payloadHash });
         } catch (e) {
           console.error(`[${nodeId}] Failed to send DELIVERY_ACK:`, e.message);

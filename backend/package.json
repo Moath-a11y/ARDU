@@ -1,11 +1,11 @@
 {
   "name": "barq-link-backend",
   "version": "1.0.0",
-  "description": "BARQ LINK - Hardware Controller and Cellular Gateway Backend",
+  "description": "BARQ LINK - Simple cellular LED control (Arduino + AT modem)",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node tests/gprs-relay-client.test.js && node tests/relay-protocol.test.js && node tests/single-device-dispatch.test.js && node tests/gprs-engine.test.js && node tests/run-tests.js && node tests/hardware-controller-interactive.test.js",
+    "test": "node tests/gprs-relay-client.test.js && node tests/relay-protocol.test.js && node tests/single-device-dispatch.test.js && node tests/gprs-engine.test.js && node tests/run-tests.js && node tests/hardware-controller-interactive.test.js && node tests/field-industrial.test.js",
     "test:single": "node tests/single-device-dispatch.test.js",
     "test:stage2": "node tests/run-tests.js",
     "test:stage3": "node tests/gprs-engine.test.js",

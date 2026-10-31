@@ -48,6 +48,8 @@ function qirdResp(data) {
 // makeRelaySession: session pre-scripted for the full GPRS activation chain
 async function makeRelaySession(id) {
   const { session, mock } = await makeSession(id);
+  mock.setScriptedResponse('AT',                       '\r\nOK\r\n',       5);
+  mock.setScriptedResponse('AT+QISTAT',                '\r\nSTATE: IP INITIAL\r\nOK\r\n', 5);
   mock.setScriptedResponse('AT+QIDEACT',               '\r\nDEACT OK\r\n', 5);
   mock.setScriptedResponse('AT+QIFGCNT=0',             '\r\nOK\r\n',       5);
   mock.setScriptedResponse('AT+QINDI=1',               '\r\nOK\r\n',       5);

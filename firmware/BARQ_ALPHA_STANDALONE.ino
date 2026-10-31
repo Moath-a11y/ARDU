@@ -35,8 +35,8 @@
 
 // Public Cloud Relay Server Endpoint
 // (Update with active VPS IP/Host or Pinggy Tunnel endpoint)
-const char SERVER_HOST[] PROGMEM = "172.233.255.158";
-const uint16_t SERVER_PORT       = 35703;
+const char SERVER_HOST[] PROGMEM = "172.104.241.200";
+const uint16_t SERVER_PORT       = 44555;
 
 // Cellular APN (e.g. "internet", "jawwal", "ooredoo")
 const char CARRIER_APN[] PROGMEM = "internet";
