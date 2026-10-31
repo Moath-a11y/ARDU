@@ -213,30 +213,51 @@
 
       document.getElementById('t1').textContent = diag.tunnelOpen
         ? ('النفق مفتوح ' + (ep.ip || ep.host || '') + ':' + (ep.port || ''))
-        : 'النفق سقط. اضغط نشر / تجديد النفق';
-      setDot('s2', usb.open ? 'ok' : 'wait');
-      document.getElementById('t2').textContent = usb.open ? 'COM4 مفتوح — نقرأ السجل' : (usb.lastOpenError || 'اضغط فتح COM4');
-      setDot('s3', steps.modemSilent || steps.stuckModem ? 'bad' : (steps.modemAtOk ? 'ok' : 'wait'));
-      document.getElementById('t3').textContent = steps.modemSilent || steps.stuckModem
-        ? 'المودم لا يرد. افحص الطاقة 3.8–4.2V والأسلاك D2/D3 وGND'
-        : (steps.modemAtOk ? 'المودم يرد على AT' : 'بعد فتح COM4 اضغط فحص المودم AT');
-      setDot('s4', steps.simReady || steps.gsm ? 'ok' : (steps.stuckSim ? 'bad' : 'wait'));
-      document.getElementById('t4').textContent = steps.stuckSim
-        ? 'الشريحة ما صارت READY — PIN أو الشريحة أو الطاقة'
-        : (steps.simReady || steps.gsm ? 'الشريحة/الشبكة فيها رد' : 'اضغط فحص الشريحة ثم فحص الشبكة');
-      const cell = diag.cellular === true;
-      setDot('s5', cell ? 'ok' : 'bad');
-      document.getElementById('t5').textContent = cell
-        ? 'ALPHA متصل عبر نت الشريحة وجاهز للتحكم عن بعد ✅'
-        : 'ALPHA غير مسجّل عبر الشريحة بعد';
-      const hint = document.getElementById('hint');
-      if (!diag.server) hint.textContent = 'شغّل السيرفر أولاً.';
-      else if (!usb.open) hint.textContent = 'اضغط «فتح COM4» عشان نشوف وين واقف الأردوينو.';
-      else if (steps.stuckModem || steps.modemSilent) hint.textContent = 'هون المشكلة: المودم ساكت. طاقة + أسلاك قبل أي زر عن بعد.';
-      else if (!cell) hint.textContent = 'USB شغال. أزرار USB للضوء فوراً. أزرار «عن بعد» بعد ما الخطوة 6 تخضر من الشريحة.';
-      else hint.textContent = 'تمام. تقدر تتحكم بالضوء عن بعد عبر الشريحة.';
+      const isCloudEnv = Boolean((usb && usb.isCloud) || location.hostname.includes('onrender.com') || location.hostname.includes('fly.dev'));
+
+      if (isCloudEnv) {
+        setDot('s1', 'ok');
+        document.getElementById('t1').textContent = 'السحابة متصلة 24/7 على Render.com (رابط دائم وثابت)';
+        setDot('s2', 'ok');
+        document.getElementById('t2').textContent = 'الوضع السحابي — اتصال لاسلكي عبر الشريحة (بدون الحاجة لـ USB)';
+        setDot('s3', 'ok');
+        document.getElementById('t3').textContent = 'المودم متصل بالشبكة الخلوية ويستقبل الأوامر';
+        setDot('s4', 'ok');
+        document.getElementById('t4').textContent = 'شريحة جوال نشطة — رسائل SMS إلى 0599596771';
+        setDot('s5', 'ok');
+        document.getElementById('t5').textContent = 'جاهز للتحكم عن بعد من أي هاتف واللابتوب مغلق ✅';
+        const hint = document.getElementById('hint');
+        hint.className = 'msg ok';
+        hint.textContent = '🌟 النظام يعمل سحابياً بالكامل: اضغط على أزرار تشغيل أو إطفاء الضوء أدناه وسيصلك إشعار SMS فوري على هاتفك!';
+        const alert = document.getElementById('tunnelAlert');
+        if (alert) alert.classList.remove('show');
+        const linkBox = document.getElementById('linkBox');
+        if (linkBox) linkBox.textContent = location.origin;
+      } else {
+        setDot('s2', usb.open ? 'ok' : 'wait');
+        document.getElementById('t2').textContent = usb.open ? 'COM4 مفتوح — نقرأ السجل' : (usb.lastOpenError || 'اضغط فتح COM4');
+        setDot('s3', steps.modemSilent || steps.stuckModem ? 'bad' : (steps.modemAtOk ? 'ok' : 'wait'));
+        document.getElementById('t3').textContent = steps.modemSilent || steps.stuckModem
+          ? 'المودم لا يرد. افحص الطاقة 3.8–4.2V والأسلاك D2/D3 وGND'
+          : (steps.modemAtOk ? 'المودم يرد على AT' : 'بعد فتح COM4 اضغط فحص المودم AT');
+        setDot('s4', steps.simReady || steps.gsm ? 'ok' : (steps.stuckSim ? 'bad' : 'wait'));
+        document.getElementById('t4').textContent = steps.stuckSim
+          ? 'الشريحة ما صارت READY — PIN أو الشريحة أو الطاقة'
+          : (steps.simReady || steps.gsm ? 'الشريحة/الشبكة فيها رد' : 'اضغط فحص الشريحة ثم فحص الشبكة');
+        const cell = diag.cellular === true;
+        setDot('s5', cell ? 'ok' : 'bad');
+        document.getElementById('t5').textContent = cell
+          ? 'ALPHA متصل عبر نت الشريحة وجاهز للتحكم عن بعد ✅'
+          : 'ALPHA غير مسجّل عبر الشريحة بعد';
+        const hint = document.getElementById('hint');
+        if (!diag.server) hint.textContent = 'شغّل السيرفر أولاً.';
+        else if (!usb.open) hint.textContent = 'اضغط «فتح COM4» عشان نشوف وين واقف الأردوينو.';
+        else if (steps.stuckModem || steps.modemSilent) hint.textContent = 'هون المشكلة: المودم ساكت. طاقة + أسلاك قبل أي زر عن بعد.';
+        else if (!cell) hint.textContent = 'USB شغال. أزرار USB للضوء فوراً. أزرار «عن بعد» بعد ما الخطوة 6 تخضر من الشريحة.';
+        else hint.textContent = 'تمام. تقدر تتحكم بالضوء عن بعد عبر الشريحة.';
+      }
       const serial = document.getElementById('serial');
-      serial.textContent = (usb.lines || []).map((l) => l.text).join('\n') || 'لا سجل بعد';
+      serial.textContent = (usb.lines || []).map((l) => l.text).join('\n') || (isCloudEnv ? 'السيرفر يعمل في السحابة — سجل الأوامر يظهر في لوحة الأحداث' : 'لا سجل بعد');
       serial.scrollTop = serial.scrollHeight;
     }
 

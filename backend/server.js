@@ -220,7 +220,17 @@ const apiServer = http.createServer(async (req, res) => {
     }
   }
 
+  const IS_CLOUD = Boolean(process.env.RENDER || process.platform === 'linux');
+
   if (pathname === '/api/usb/open' && req.method === 'POST') {
+    if (IS_CLOUD) {
+      return sendJson(res, 200, {
+        ok: true,
+        isCloud: true,
+        note: 'النظام في الوضع السحابي (بدون لابتوب) — الأردوينو يتصل مباشرة عبر شريحة الهاتف بدون الحاجة لمنفذ USB.',
+        usb: usb.snapshot()
+      });
+    }
     try {
       await usb.ensureOpen();
       pushEvent('فتح منفذ USB COM4 لمراقبة الأردوينو وأوامر AT');
@@ -238,6 +248,12 @@ const apiServer = http.createServer(async (req, res) => {
   }
 
   if ((pathname === '/api/at' || pathname === '/api/usb/cmd') && req.method === 'POST') {
+    if (IS_CLOUD) {
+      return sendJson(res, 200, {
+        ok: false,
+        error: 'أوامر AT المباشرة عبر USB متاحة فقط عند وصل الأردوينو سلكياً باللابتوب وتشغيل السيرفر المحلي.'
+      });
+    }
     try {
       const body = await readBody(req);
       let cmd = String(body.cmd || body.command || 'AT').trim();
@@ -252,8 +268,21 @@ const apiServer = http.createServer(async (req, res) => {
   if (pathname === '/api/usb/led' && req.method === 'POST') {
     try {
       const body = await readBody(req);
+      const action = String(body.action || '').toLowerCase();
+      if (IS_CLOUD) {
+        // في السحابة: حوّل الأمر تلقائياً لصف الشريحة حتى ينجح فوراً!
+        const map = { on: 'LED_ON', off: 'LED_OFF', blink: 'LED_BLINK' };
+        const cmd = map[action] || 'LED_ON';
+        const msgId = `msg-${Date.now()}`;
+        const queue = deviceQueues.get(DEVICE_ID) || [];
+        if (queue.length >= 3) queue.shift();
+        queue.push({ cmd, msgId });
+        deviceQueues.set(DEVICE_ID, queue);
+        pushEvent(`[خوادم السحابة] أمر ${cmd} تم توجيهه لشريحة الأردوينو`);
+        return sendJson(res, 200, { ok: true, cmd, via: 'http-poll', msgId });
+      }
       const map = { on: 'USB_LED_ON', off: 'USB_LED_OFF', blink: 'USB_LED_BLINK' };
-      const cmd = map[body.action] || map[String(body.action || '').toLowerCase()];
+      const cmd = map[action];
       if (!cmd) return sendJson(res, 400, { ok: false, error: 'on أو off أو blink' });
       const lines = await usb.command(cmd, 2500);
       pushEvent('أمر ضوء عبر USB: ' + cmd);

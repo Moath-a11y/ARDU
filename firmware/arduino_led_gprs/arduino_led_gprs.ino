@@ -25,8 +25,8 @@
 const char SERVER_HOST[] PROGMEM = "jhz-lthkm-n-b-d.onrender.com";
 const char CARRIER_APN[] PROGMEM  = "internet";
 
-// رقم الهاتف الذي يستقبل SMS بعد كل عملية (بصيغة دولية)
-const char NOTIFY_PHONE[] PROGMEM = "+962000000000"; // ← غيّر هذا الرقم!
+// رقم الهاتف الذي يستقبل SMS بعد كل عملية
+const char NOTIFY_PHONE[] PROGMEM = "0599596771";
 // ====================================================
 
 static char currentHost[64] = "";
@@ -97,51 +97,53 @@ void sendSMS(const char* msg) {
   char phone[24];
   strcpy_P(phone, NOTIFY_PHONE);
 
-  DEBUG.print(F("[SMS] إرسال إلى: "));
+  DEBUG.print(F("[SMS] sending to: "));
   DEBUG.println(phone);
 
-  // وضع نصي
-  if (!sendAT("AT+CMGF=1", "OK", 3000)) {
-    DEBUG.println(F("[SMS] CMGF فشل"));
+  drainModem();
+  if (!sendAT("AT+CMGF=1", "OK", 2000)) {
+    DEBUG.println(F("[SMS] CMGF failed"));
     return;
   }
+  sendAT("AT+CSCS=\"GSM\"", "OK", 1000);
 
-  // إرسال أمر CMGS — ينتظر '>' من المودم
   MODEM.print(F("AT+CMGS=\""));
   MODEM.print(phone);
   MODEM.print(F("\"\r\n"));
-  delay(1500);
 
-  // تأكيد وجود موجّه '>' قبل الإرسال
+  // انتظر '>' من المودم
   bool ready = false;
   uint32_t t0 = millis();
-  while (millis() - t0 < 4000) {
-    if (MODEM.available() && MODEM.read() == '>') { ready = true; break; }
+  while (millis() - t0 < 5000) {
+    if (MODEM.available()) {
+      char ch = (char)MODEM.read();
+      if (ch == '>') { ready = true; break; }
+    }
   }
 
   if (!ready) {
-    DEBUG.println(F("[SMS] لم يظهر '>' — إلغاء"));
-    MODEM.print((char)27); // ESC لإلغاء
+    DEBUG.println(F("[SMS] no > prompt - cancel"));
+    MODEM.print((char)27); // ESC
     return;
   }
 
   MODEM.print(msg);
-  MODEM.print((char)0x1A); // Ctrl+Z لإرسال
+  MODEM.print((char)0x1A); // Ctrl+Z
 
-  // انتظر +CMGS أو ERROR
-  char resp[48];
+  char resp[64];
   uint8_t ri = 0;
   t0 = millis();
-  while (millis() - t0 < 8000) {
+  while (millis() - t0 < 10000) {
     if (MODEM.available()) {
       char ch = (char)MODEM.read();
       if (ri < sizeof(resp) - 1) resp[ri++] = ch;
+      resp[ri] = '\0';
       if (strstr(resp, "+CMGS:") != nullptr) {
-        DEBUG.println(F("[SMS] أُرسلت ✓"));
+        DEBUG.println(F("[SMS] Sent successfully ✓"));
         return;
       }
       if (strstr(resp, "ERROR") != nullptr) {
-        DEBUG.println(F("[SMS] خطأ!"));
+        DEBUG.println(F("[SMS] Send error!"));
         return;
       }
     }
@@ -262,13 +264,13 @@ void handleRelay(const char* json) {
   if (strstr(json, "LED_BLINK") != nullptr || strstr(json, "BLINK") != nullptr) {
     blinkLed(6);
     setLed(true);
-    strcpy_P(smsText, PSTR("[BARQ] تم تنفيذ الامر: وميض الضوء - الضوء الان مضاء"));
+    strcpy_P(smsText, PSTR("[BARQ LINK] LED BLINK - Wameed Al-Daww"));
   } else if (strstr(json, "LED_ON") != nullptr || strstr(json, "RELAY_ON") != nullptr) {
     setLed(true);
-    strcpy_P(smsText, PSTR("[BARQ] تم تنفيذ الامر: الضوء مضاء الان"));
+    strcpy_P(smsText, PSTR("[BARQ LINK] LED ON - Al-Daww Madaa"));
   } else if (strstr(json, "LED_OFF") != nullptr || strstr(json, "RELAY_OFF") != nullptr) {
     setLed(false);
-    strcpy_P(smsText, PSTR("[BARQ] تم تنفيذ الامر: الضوء مطفا الان"));
+    strcpy_P(smsText, PSTR("[BARQ LINK] LED OFF - Al-Daww Mutfaa"));
   } else {
     ack(msgId, "FAILED");
     return;
@@ -385,18 +387,13 @@ void pollUsb() {
     } else if (strncmp(usbLine, "SET_SERVER ", 11) == 0) {
       char* p = usbLine + 11;
       char* colon = strchr(p, ':');
-      if (colon) {
-        *colon = '\0';
-        strncpy(currentHost, p, sizeof(currentHost) - 1);
-        currentHost[sizeof(currentHost) - 1] = '\0';
-        currentPort = (uint16_t)atoi(colon + 1);
-        DEBUG.print(F("[USB] SERVER SET: "));
-        DEBUG.print(currentHost);
-        DEBUG.print(':');
-        DEBUG.println(currentPort);
-        backoffMs = 1500;
-        state = ST_TCP;
-      }
+      if (colon) *colon = '\0';
+      strncpy(currentHost, p, sizeof(currentHost) - 1);
+      currentHost[sizeof(currentHost) - 1] = '\0';
+      DEBUG.print(F("[USB] SERVER SET: "));
+      DEBUG.println(currentHost);
+      backoffMs = 1500;
+      state = ST_HTTP_INIT;
     } else if (strncmp(usbLine, "AT", 2) == 0) {
       usbDumpModem(usbLine, 3500);
     }
@@ -405,7 +402,6 @@ void pollUsb() {
 
 void setup() {
   strcpy_P(currentHost, SERVER_HOST);
-  currentPort = SERVER_PORT;
 
   pinMode(PIN_LED, OUTPUT);
   pinMode(PIN_LED_EXT, OUTPUT);
@@ -422,7 +418,7 @@ void loop() {
   pollUsb();
   uint32_t now = millis();
 
-  if (state != ST_ONLINE && !usbHoldLed) {
+  if (state != ST_HTTP_POLL && !usbHoldLed) {
     if (now - lastBlink > 250) {
       lastBlink = now;
       digitalWrite(PIN_LED, !digitalRead(PIN_LED));
@@ -603,14 +599,14 @@ void loop() {
       char smsText[80];
       if (strstr(cmdStr, "LED_ON") || strstr(cmdStr, "RELAY_ON")) {
         setLed(true);
-        strcpy_P(smsText, PSTR("[BARQ] تم تنفيذ الامر: الضوء مضاء الان"));
+        strcpy_P(smsText, PSTR("[BARQ LINK] LED ON - Al-Daww Madaa"));
       } else if (strstr(cmdStr, "LED_OFF") || strstr(cmdStr, "RELAY_OFF")) {
         setLed(false);
-        strcpy_P(smsText, PSTR("[BARQ] تم تنفيذ الامر: الضوء مطفا الان"));
+        strcpy_P(smsText, PSTR("[BARQ LINK] LED OFF - Al-Daww Mutfaa"));
       } else if (strstr(cmdStr, "BLINK")) {
         blinkLed(6);
         setLed(true);
-        strcpy_P(smsText, PSTR("[BARQ] تم تنفيذ الامر: وميض الضوء"));
+        strcpy_P(smsText, PSTR("[BARQ LINK] LED BLINK - Wameed Al-Daww"));
       } else {
         break; // أمر غير معروف
       }

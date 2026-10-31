@@ -12,3 +12,13 @@ logs/
 # أدوات Arduino الكبيرة - لا ترفعها على GitHub
 tools/arduino-data/
 tools/arduino-cli.exe
+
+# ملفات تجارب وسجلات مؤقتة
+scratch/
+backend/test_*.js
+backend/read_*.js
+backend/query_*.js
+backend/listen_*.js
+backend/monitor_*.js
+firmware/passthrough/
+firmware/sim_checker/

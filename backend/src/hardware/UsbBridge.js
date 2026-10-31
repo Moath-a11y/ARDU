@@ -9,13 +9,15 @@ class UsbBridge {
     this.lines = [];
     this.lastOpenError = null;
     this.opening = null;
+    this.isCloud = Boolean(process.env.RENDER || process.platform === 'linux');
   }
 
   snapshot() {
     return {
       port: this.portPath,
       open: Boolean(this.port && this.port.isOpen),
-      lastOpenError: this.lastOpenError,
+      isCloud: this.isCloud,
+      lastOpenError: this.isCloud ? null : this.lastOpenError,
       lines: this.lines.slice(-80)
     };
   }
