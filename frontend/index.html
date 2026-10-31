@@ -211,8 +211,6 @@
         alert.classList.remove('show');
       }
 
-      document.getElementById('t1').textContent = diag.tunnelOpen
-        ? ('النفق مفتوح ' + (ep.ip || ep.host || '') + ':' + (ep.port || ''))
       const isCloudEnv = Boolean((usb && usb.isCloud) || location.hostname.includes('onrender.com') || location.hostname.includes('fly.dev'));
 
       if (isCloudEnv) {
