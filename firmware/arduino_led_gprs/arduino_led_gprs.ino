@@ -21,19 +21,15 @@
 #include <SoftwareSerial.h>
 
 // ========== غيّر هذه الإعدادات حسب بيئتك ==========
-// عنوان السيرفر الدائم على Fly.io (لا يتغير أبداً!)
-const char SERVER_HOST[] PROGMEM = "barq-link.fly.dev";
-const uint16_t SERVER_PORT = 5050;
-const char CARRIER_APN[] PROGMEM = "internet";
+// عنوان سيرفر Render.com (دائم ومجاني إلى الأبد)
+const char SERVER_HOST[] PROGMEM = "jhz-lthkm-n-b-d.onrender.com";
+const char CARRIER_APN[] PROGMEM  = "internet";
 
 // رقم الهاتف الذي يستقبل SMS بعد كل عملية (بصيغة دولية)
-// مثال: "+962791234567" للأردن، "+201234567890" لمصر
 const char NOTIFY_PHONE[] PROGMEM = "+962000000000"; // ← غيّر هذا الرقم!
 // ====================================================
 
-
-static char currentHost[48] = "";
-static uint16_t currentPort = 0;
+static char currentHost[64] = "";
 
 #define DEVICE_ID "ALPHA"
 #define PROTOCOL_VER "BARQ-RELAY-v1"
@@ -65,16 +61,18 @@ enum State : uint8_t {
   ST_GSM,
   ST_GPRS,
   ST_PDP,
-  ST_TCP,
-  ST_REG,
-  ST_ONLINE
+  ST_HTTP_INIT,   // تهيئة HTTP/SSL مرة واحدة
+  ST_HTTP_POLL    // حلقة الاستفسار كل 3 ثوان
 };
 
 static State state = ST_INIT;
-static uint32_t lastPing = 0;
+static uint32_t lastPing  = 0;
+static uint32_t lastPoll  = 0;    // توقيت HTTP poll الأخير
 static uint32_t lastBlink = 0;
 static uint32_t backoffMs = 2000;
+static const uint32_t POLL_INTERVAL_MS = 4000; // استفسر كل 4 ثوان
 static const uint32_t PING_MS = 25000;
+
 
 void setLed(bool on) {
   ledOn = on;
@@ -471,7 +469,7 @@ void loop() {
       sendAT("AT+QIREGAPP", "OK", 4000);
       if (sendAT("AT+QIACT", "OK", 12000)) {
         sendAT("AT+QILOCIP", ".", 3000);
-        state = ST_TCP;
+        state = ST_HTTP_INIT;   // استخدم HTTP polling بدل TCP
         backoffMs = 2000;
       } else {
         delay(3000);
@@ -479,77 +477,180 @@ void loop() {
       break;
     }
 
-    case ST_TCP: {
-      if (!currentHost[0] || currentPort == 0) {
-        strcpy_P(currentHost, SERVER_HOST);
-        currentPort = SERVER_PORT;
-      }
-      DEBUG.print(F("[6] TCP "));
-      DEBUG.print(currentHost);
-      DEBUG.print(':');
-      DEBUG.println(currentPort);
+    case ST_HTTP_INIT: {
+      DEBUG.println(F("[6] HTTP/SSL تهيئة"));
+      // ضبط SSL: بدون تحقّق من الشهادة (يعمل مع Render.com)
+      sendAT("AT+QHTTPCFG=\"contextid\",1",    "OK", 2000);
+      sendAT("AT+QHTTPCFG=\"sslctxid\",1",      "OK", 2000);
+      sendAT("AT+QHTTPCFG=\"responseheader\",0","OK", 2000);
+      sendAT("AT+QSSLCFG=\"sslversion\",1,4",   "OK", 2000); // TLS 1.2
+      sendAT("AT+QSSLCFG=\"securitylevel\",1,0","OK", 2000); // لا تحقق
+      strcpy_P(currentHost, SERVER_HOST);
+      setLed(false);
+      DEBUG.print(F("[HTTP] سيتصل بـ: "));
+      DEBUG.println(currentHost);
+      state = ST_HTTP_POLL;
+      lastPoll = millis() - POLL_INTERVAL_MS; // ابدأ فوراً
+      break;
+    }
+
+    case ST_HTTP_POLL: {
+      if (now - lastPoll < POLL_INTERVAL_MS) break;
+      lastPoll = now;
+
+      // بناء URL: https://host/api/device/poll?id=ALPHA
+      char urlBuf[128];
+      snprintf_P(urlBuf, sizeof(urlBuf),
+        PSTR("https://%s/api/device/poll?id=%s"), currentHost, DEVICE_ID);
+      uint16_t urlLen = (uint16_t)strlen(urlBuf);
+
+      // [A] أرسل طول URL للمودم
+      char atCmd[40];
       drainModem();
-      MODEM.print(F("AT+QICLOSE\r\n"));
-      delay(800);
-      char cmd[80];
-      snprintf_P(cmd, sizeof(cmd), PSTR("AT+QIOPEN=\"TCP\",\"%s\",%u"), currentHost, currentPort);
-      if (sendAT(cmd, "CONNECT OK", 20000)) {
-        DEBUG.println(F("TCP OK"));
-        state = ST_REG;
-        backoffMs = 2000;
-      } else {
-        delay(backoffMs);
-        if (backoffMs < 30000) backoffMs *= 2;
-      }
-      break;
-    }
+      snprintf_P(atCmd, sizeof(atCmd), PSTR("AT+QHTTPURL=%u,30"), urlLen);
+      MODEM.print(atCmd);
+      MODEM.print(F("\r\n"));
 
-    case ST_REG: {
-      DEBUG.println(F("[7] تسجيل"));
-      int n = snprintf_P(txBuf, TX_BUF_SIZE,
-        PSTR("{\"type\":\"REGISTER\",\"deviceId\":\"%s\",\"version\":\"%s\"}\r\n"),
-        DEVICE_ID, PROTOCOL_VER);
-      if (n > 0 && sendTcp(txBuf, (uint16_t)n)) {
-        state = ST_ONLINE;
-        lastPing = millis();
-        setLed(false);
-        DEBUG.println(F("ONLINE — جاهز لأوامر الويب"));
-      } else {
-        state = ST_TCP;
-      }
-      break;
-    }
-
-    case ST_ONLINE: {
-      if (MODEM.available()) {
-        uint16_t lIdx = 0;
-        char line[64];
+      // انتظر CONNECT قبل إرسال URL
+      bool gotConnect = false;
+      {
+        char rb[32]; uint8_t ri = 0;
         uint32_t t0 = millis();
-        while (millis() - t0 < 120) {
+        while (millis() - t0 < 5000) {
           if (MODEM.available()) {
             char ch = (char)MODEM.read();
-            if (ch == '\n' || lIdx >= sizeof(line) - 1) break;
-            if (ch != '\r') line[lIdx++] = ch;
+            if (ri < 31) rb[ri++] = ch;
+            rb[ri] = '\0';
+            if (strstr(rb, "CONNECT") != nullptr) { gotConnect = true; break; }
           }
-        }
-        line[lIdx] = '\0';
-        if (strstr(line, "+QIRDI:") != nullptr) readInbound();
-        else if (strstr(line, "CLOSED") != nullptr) {
-          DEBUG.println(F("انقطع TCP — إعادة اتصال"));
-          state = ST_TCP;
-          break;
         }
       }
 
-      if (now - lastPing > PING_MS) {
-        lastPing = now;
-        int n = snprintf_P(txBuf, TX_BUF_SIZE,
-          PSTR("{\"type\":\"PING\",\"deviceId\":\"%s\"}\r\n"), DEVICE_ID);
-        if (n > 0 && !sendTcp(txBuf, (uint16_t)n)) {
-          DEBUG.println(F("PING فشل — إعادة اتصال"));
-          state = ST_TCP;
+      if (!gotConnect) {
+        DEBUG.println(F("[HTTP] CONNECT timeout - إعادة GPRS"));
+        state = ST_PDP;
+        break;
+      }
+
+      // [B] أرسل URL bytes
+      MODEM.print(urlBuf);
+      delay(1500);
+      drainModem();
+
+      // [C] GET request
+      MODEM.print(F("AT+QHTTPGET=30\r\n"));
+
+      // انتظر +QHTTPGET: 0,200
+      bool gotOk = false;
+      {
+        char rb[64]; uint8_t ri = 0;
+        uint32_t t0 = millis();
+        while (millis() - t0 < 35000) {
+          if (MODEM.available()) {
+            char ch = (char)MODEM.read();
+            if (ri < 63) rb[ri++] = ch;
+            rb[ri] = '\0';
+            if (strstr(rb, "+QHTTPGET: 0,200") != nullptr) { gotOk = true; break; }
+            if (strstr(rb, "+QHTTPGET: 0,")   != nullptr) break; // خطأ HTTP
+          }
         }
       }
+
+      if (!gotOk) { DEBUG.println(F("[HTTP] GET فشل")); break; }
+
+      // [D] اقرأ جسم الرد
+      drainModem();
+      MODEM.print(F("AT+QHTTPREAD=10\r\n"));
+
+      char body[96]; uint8_t bi = 0;
+      {
+        bool inBody = false;
+        char rb[32]; uint8_t ri = 0;
+        uint32_t t0 = millis();
+        while (millis() - t0 < 12000) {
+          if (MODEM.available()) {
+            char ch = (char)MODEM.read();
+            if (!inBody) {
+              if (ri < 31) rb[ri++] = ch;
+              rb[ri] = '\0';
+              if (strstr(rb, "CONNECT") != nullptr) inBody = true;
+            } else {
+              if (bi < 95) body[bi++] = ch;
+              // توقف عند 'طلب null' أو علامة النهاية
+              if (bi > 4 && body[bi-1] == '}') break;
+            }
+          }
+        }
+        body[bi] = '\0';
+      }
+      drainModem();
+
+      DEBUG.print(F("[HTTP] body: "));
+      DEBUG.println(body);
+
+      // استخرج cmd من JSON: {"ok":true,"cmd":"LED_ON","msgId":"..."}
+      char cmdStr[16] = "";
+      char msgId[52]  = "";
+      extractField(body, "cmd",   cmdStr, sizeof(cmdStr));
+      extractField(body, "msgId", msgId,  sizeof(msgId));
+
+      if (!cmdStr[0] || strcmp(cmdStr, "null") == 0) break; // لا يوجد أمر
+
+      DEBUG.print(F("[HTTP] تنفيذ: "));
+      DEBUG.println(cmdStr);
+
+      // نفّذ الأمر
+      char smsText[80];
+      if (strstr(cmdStr, "LED_ON") || strstr(cmdStr, "RELAY_ON")) {
+        setLed(true);
+        strcpy_P(smsText, PSTR("[BARQ] تم تنفيذ الامر: الضوء مضاء الان"));
+      } else if (strstr(cmdStr, "LED_OFF") || strstr(cmdStr, "RELAY_OFF")) {
+        setLed(false);
+        strcpy_P(smsText, PSTR("[BARQ] تم تنفيذ الامر: الضوء مطفا الان"));
+      } else if (strstr(cmdStr, "BLINK")) {
+        blinkLed(6);
+        setLed(true);
+        strcpy_P(smsText, PSTR("[BARQ] تم تنفيذ الامر: وميض الضوء"));
+      } else {
+        break; // أمر غير معروف
+      }
+
+      // أرسل SMS تأكيد
+      sendSMS(smsText);
+
+      // [E] POST النتيجة للسيرفر
+      // بناء JSON body للـ POST
+      char postBody[96];
+      snprintf_P(postBody, sizeof(postBody),
+        PSTR("{\"id\":\"%s\",\"cmd\":\"%s\",\"msgId\":\"%s\",\"status\":\"EXECUTED\"}"),
+        DEVICE_ID, cmdStr, msgId);
+      uint16_t postLen = (uint16_t)strlen(postBody);
+
+      // URL للـ POST
+      char postUrl[128];
+      snprintf_P(postUrl, sizeof(postUrl),
+        PSTR("https://%s/api/device/result"), currentHost);
+      uint16_t puLen = (uint16_t)strlen(postUrl);
+
+      drainModem();
+      snprintf_P(atCmd, sizeof(atCmd), PSTR("AT+QHTTPURL=%u,30"), puLen);
+      MODEM.print(atCmd); MODEM.print(F("\r\n"));
+      delay(600);
+      // انتظر CONNECT
+      { uint32_t t0=millis(); while(millis()-t0<3000){if(MODEM.available()){char c=(char)MODEM.read();if(c==':')break;}} }
+      MODEM.print(postUrl);
+      delay(1000);
+      drainModem();
+
+      // AT+QHTTPPOST=<post_len>,<input_time>,<rsp_time>
+      snprintf_P(atCmd, sizeof(atCmd), PSTR("AT+QHTTPPOST=%u,10,10"), postLen);
+      MODEM.print(atCmd); MODEM.print(F("\r\n"));
+      delay(1000);
+      MODEM.print(postBody);
+      delay(2000);
+      drainModem();
+
+      DEBUG.println(F("[HTTP] نتيجة أُرسلت ✓"));
       break;
     }
   }

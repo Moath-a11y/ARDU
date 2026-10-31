@@ -25,6 +25,10 @@ const usb = new UsbBridge();
 const tunnelService = new TunnelService();
 const events = [];
 
+// ── صف أوامر HTTP-Poll لكل جهاز (بديل TCP على Render.com) ──
+// الأردوينو يستفسر GET /api/device/poll?id=ALPHA كل 3 ثوان
+const deviceQueues = new Map(); // deviceId → Array<{cmd, msgId}>
+
 function readEndpoint() {
   try {
     return JSON.parse(fs.readFileSync(path.join(__dirname, 'pinggy_endpoint.json'), 'utf8'));
@@ -131,8 +135,36 @@ const apiServer = http.createServer(async (req, res) => {
       mode: 'simple-cellular',
       tcpPort: TCP_PORT,
       deviceId: DEVICE_ID,
-      online: deviceOnline()
+      online: deviceOnline(),
+      httpPollClients: deviceQueues.size
     });
+  }
+
+  // ── HTTP Poll: الأردوينو يستفسر هل يوجد أمر معلّق ──
+  if (pathname === '/api/device/poll' && req.method === 'GET') {
+    const devId = (url.searchParams.get('id') || DEVICE_ID).toUpperCase();
+    const queue = deviceQueues.get(devId) || [];
+    if (queue.length > 0) {
+      const item = queue.shift();
+      pushEvent(`[پولينغ] ${devId} يستلم أمر: ${item.cmd}`, { deviceId: devId });
+      return sendJson(res, 200, { ok: true, cmd: item.cmd, msgId: item.msgId });
+    }
+    return sendJson(res, 200, { ok: true, cmd: null });
+  }
+
+  // ── HTTP Poll: الأردوينو يبلغ بنتيجة تنفيذ الأمر ──
+  if (pathname === '/api/device/result' && req.method === 'POST') {
+    try {
+      const body = await readBody(req);
+      const devId = String(body.id || DEVICE_ID).toUpperCase();
+      const status = String(body.status || 'EXECUTED');
+      const cmd    = String(body.cmd || body.msgId || '');
+      pushEvent(`[پولينغ] ${devId} نفّذ ${cmd}: ${status}`, { deviceId: devId, status });
+      relay.emit('delivery_confirmed', { deviceId: devId, cmd, status, via: 'http-poll' });
+      return sendJson(res, 200, { ok: true });
+    } catch (err) {
+      return sendJson(res, 500, { ok: false, error: err.message });
+    }
   }
 
   if (pathname === '/api/status' && req.method === 'GET') {
@@ -239,15 +271,28 @@ const apiServer = http.createServer(async (req, res) => {
       if (!cmd) {
         return sendJson(res, 400, { ok: false, error: 'استخدم on أو off أو blink' });
       }
-      if (!deviceOnline()) {
-        return sendJson(res, 409, {
-          ok: false,
-          error: `الجهاز ${DEVICE_ID} غير متصل. وصّل طاقة الأردوينو والمودم وانتظر تسجيل الشريحة.`
-        });
+
+      const msgId = `msg-${Date.now()}`;
+
+      // حاول TCP relay أولاً (عندما يكون الأردوينو متصلاً عبر TCP)
+      if (deviceOnline()) {
+        try {
+          pushEvent(`إرسال ${cmd} إلى ${DEVICE_ID} عبر TCP`);
+          const result = await relay.sendRelayFromWeb('WEB', DEVICE_ID, cmd, 15000);
+          return sendJson(res, 200, { ok: true, cmd, result, via: 'tcp' });
+        } catch (tcpErr) {
+          pushEvent(`TCP فشل: ${tcpErr.message} — تحويل لـ HTTP-poll`);
+        }
       }
-      pushEvent(`إرسال ${cmd} إلى ${DEVICE_ID}`);
-      const result = await relay.sendRelayFromWeb('WEB', DEVICE_ID, cmd, 25000);
-      return sendJson(res, 200, { ok: true, cmd, result });
+
+      // HTTP-poll fallback: ضع الأمر في الصف (للنشر على Render.com)
+      const queue = deviceQueues.get(DEVICE_ID) || [];
+      // لا تدع الصف تكبر فوق 3 أوامر معلّقة
+      if (queue.length >= 3) queue.shift();
+      queue.push({ cmd, msgId });
+      deviceQueues.set(DEVICE_ID, queue);
+      pushEvent(`[خوادم HTTP-poll] أمر ${cmd} في قائمة الانتظار — سيصللأردوينو خلال 3-5 ثوان`, { deviceId: DEVICE_ID });
+      return sendJson(res, 200, { ok: true, cmd, via: 'http-poll', msgId, note: 'سيصللأردوينو خلال 3-5 ثوان' });
     } catch (err) {
       pushEvent(`فشل الأمر: ${err.message}`);
       return sendJson(res, 500, { ok: false, error: err.message });
